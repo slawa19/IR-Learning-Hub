@@ -1,0 +1,34 @@
+# Python / Home Assistant
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Home Assistant runtime data
+.storage/
+home-assistant.log*
+deps/
+tts/
+
+# Frontend dependencies and builds
+node_modules/
+dist/
+build/
+coverage/
+
+# Local environments and editor state
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# OS files
+.DS_Store
+Thumbs.db
