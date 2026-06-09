@@ -1,10 +1,12 @@
-# Техническое задание: IR Learning Hub для Home Assistant
+# Техническое задание: IR Learning Hub / SmartIR Profile Builder для Home Assistant
 
 ## 1. Назначение
 
-**IR Learning Hub** — локальный модуль для Home Assistant, предназначенный для обучения, хранения и отправки инфракрасных команд через Zigbee IR-пульт, подключённый к Home Assistant через **ZHA**.
+**IR Learning Hub** — локальный модуль для Home Assistant, предназначенный для обучения ИК-команд через Zigbee IR-пульт, подключённый через **ZHA**, и подготовки профилей команд для дальнейшего использования в **SmartIR**.
 
-Цель проекта — дать пользователю простой интерфейс для работы с ИК-устройствами без Developer Tools, ручного копирования IR-кодов и постоянного редактирования YAML.
+После проверок Phase 0 целевая роль проекта сужена до **SmartIR Profile Builder**: удобный UI-мастер для обучения, проверки, сохранения и экспорта IR-кодов. Runtime-управление готовыми профилями должно выполнять SmartIR или стандартные HA automations/scripts, а не отдельный универсальный runtime внутри проекта.
+
+Цель проекта — дать пользователю простой интерфейс для создания IR-профилей без Developer Tools, ручного копирования IR-кодов и постоянного редактирования YAML.
 
 Целевой UX:
 
@@ -31,20 +33,23 @@
 - зависеть от неофициальных изменений в HA core;
 - хранить IR-коды в `input_text` helpers;
 - создавать отдельную entity/helper на каждую IR-команду;
-- требовать облако Tuya, Smart Life или Tuya IoT Platform.
+- требовать облако Tuya, Smart Life или Tuya IoT Platform;
+- зависеть от IR Wrapper как transport-слоя.
+
+SmartIR может использоваться как runtime для готовых профилей. IR Wrapper не входит в целевую архитектуру: в HA 2026.6.1 он несовместим из-за ошибки `KeyError: 'discovery_keys'`, а проверенный TS1201 покрывается native ZHA API.
 
 ## 3. Целевая архитектура
 
 ```text
-ZHA Tuya IR Remote
+ZHA Tuya IR Remote / TS1201
         ↓
 custom_components/ir_learning_hub/
         ↓
 .storage/ir_learning_hub
         ↓
-Home Assistant services + entities
+SmartIR-compatible profile export
         ↓
-Lovelace card / automations / Hermes Agent
+SmartIR runtime / HA automations
 ```
 
 ## 4. Поддерживаемые сценарии
@@ -207,38 +212,37 @@ zosung_string
 
 ### 6.2.1 Механизм получения выученного IR-кода
 
-Phase 0 подтвердила, что стандартные внешние механизмы Home Assistant не отдают выученный IR-код для проверенного TS1201.
+Phase 0 подтвердила, что выученный IR-код доступен через штатный ZHA WebSocket API, без IR Wrapper и без прямого monkey patching ZHA.
 
 Для Tuya TS1201 / Zosung IR ожидаемая модель такая:
 
 1. интеграция включает режим обучения на ZHA IR-пульте;
 2. пульт получает IR-сигнал от оригинального пульта;
 3. quirk обновляет атрибут `last_learned_ir_code` (`attribute_id: 0x0000`) в Zosung IR control cluster;
-4. custom integration получает строковый код напрямую из zigpy device object и сохраняет его во временное состояние `last_learned_code`.
+4. custom integration читает attribute `0` через native ZHA API и сохраняет строковый код во временное состояние `last_learned_code`.
 
 Основной метод для MVP:
 
 ```text
-прямой доступ к ZHA device proxy и zigpy device object внутри custom integration
+ZHA WebSocket command: zha/devices/clusters/attributes/value
 ```
 
-Ожидаемый путь реализации:
-
-```python
-from homeassistant.components.zha.helpers import async_get_zha_device_proxy
-
-zha_device_proxy = await async_get_zha_device_proxy(hass, ieee)
-zigpy_device = zha_device_proxy.device
-cluster = zigpy_device.endpoints[1].zosung_ircontrol
-attrs, failed = await cluster.read_attributes(["last_learned_ir_code"])
-code = attrs.get("last_learned_ir_code")
-```
-
-Допустимый дополнительный механизм:
+Параметры чтения:
 
 ```text
-listener/callback на изменение cluster attribute внутри runtime-объекта интеграции
+ieee: b0:e8:e8:ff:fe:16:ef:35
+endpoint_id: 1
+cluster_id: 57348
+attribute_id: 0
 ```
+
+Ожидаемый результат:
+
+```text
+CharacterString с base64-encoded IR timing data; пустая строка означает, что код ещё не обучен или не обновился
+```
+
+Допустимый fallback внутри custom integration — прямой доступ к ZHA device proxy / zigpy device object через `async_get_zha_device_proxy`, если WebSocket command окажется недоступной из backend API текущей версии Home Assistant. Fallback не должен быть первым вариантом, пока native ZHA API работает.
 
 Нерабочие для проверенного устройства методы:
 
@@ -246,7 +250,7 @@ listener/callback на изменение cluster attribute внутри runtime
 - state changes: entity `switch.kabinet_pult_distantsionnyi_audio` не менялась;
 - HA service `zha.read_zigbee_cluster_attributes`: возвращал HTTP 400 Bad Request для вариантов чтения `last_learned_ir_code`.
 
-Следовательно, `learn` в Phase 1 должен быть реализован через прямое взаимодействие с ZHA/zigpy runtime objects, а не только через публичные HA services.
+Следовательно, `learn` в Phase 1 должен использовать `zha.issue_zigbee_cluster_command`, а чтение кода — `zha/devices/clusters/attributes/value`. Event bus и state changes не считаются источником кода.
 
 ### 6.3 Конфигурация IR-передатчика
 
@@ -294,14 +298,30 @@ timeout: 30
 Поведение:
 
 1. включает режим обучения на IR-пульте;
-2. ожидает получения IR-кода;
-3. сохраняет код во временное состояние `last_learned_code`;
-4. не перезаписывает существующую команду без явного подтверждения;
-5. возвращает ошибку при timeout.
+2. показывает пользователю окно ожидания физического нажатия на оригинальном пульте;
+3. не перезаписывает существующую команду;
+4. возвращает ошибку при timeout или недоступном transmitter.
 
-### 7.2 `ir_learning_hub.save_last_learned`
+### 7.2 `ir_learning_hub.read_last_code`
 
-Сохраняет последний полученный код в выбранную команду.
+Читает последний выученный код из ZHA attribute `0`.
+
+Пример данных:
+
+```yaml
+transmitter_id: b0e8e8fffe16ef35
+```
+
+Поведение:
+
+1. вызывает native ZHA WebSocket command `zha/devices/clusters/attributes/value`;
+2. читает endpoint `1`, cluster `57348`, attribute `0` для выбранного transmitter;
+3. сохраняет непустой результат во временное состояние `last_learned_code`;
+4. возвращает `code_empty`, если attribute вернул пустую строку.
+
+### 7.3 `ir_learning_hub.save_last_learned`
+
+Сохраняет последний полученный код в выбранную команду внутреннего Profile Builder registry.
 
 Пример данных:
 
@@ -314,17 +334,17 @@ verified: false
 
 `save_last_learned` не должен автоматически устанавливать `verified: true`. Значение `verified: true` допустимо только после успешного `test_last_learned` или явного подтверждения пользователя в UI. Если пользователь выполняет `learn → save` без теста, команда сохраняется с `verified: false`, а UI должен показывать предупреждение.
 
-### 7.3 `ir_learning_hub.test_last_learned`
+### 7.4 `ir_learning_hub.test_last_learned`
 
-Отправляет последний выученный код без сохранения.
+Отправляет последний выученный код без сохранения в SmartIR-профиль.
 
 Назначение: проверить, что был выучен правильный сигнал.
 
 После успешного теста временное состояние последнего кода может быть помечено как проверенное, чтобы последующий `save_last_learned` сохранил команду с `verified: true`.
 
-### 7.4 `ir_learning_hub.send`
+### 7.5 `ir_learning_hub.send`
 
-Отправляет сохранённую команду.
+Отправляет сохранённую команду через native ZHA API. В целевой архитектуре это диагностический/test service для Profile Builder, а не основной runtime поверх готовых профилей.
 
 Пример данных:
 
@@ -334,9 +354,22 @@ device_id: yamaha_amp
 command_id: volume_up
 ```
 
-### 7.5 `ir_learning_hub.add_device`
+### 7.6 `ir_learning_hub.export_smartir`
 
-Добавляет новое IR-устройство.
+Экспортирует сохранённые команды выбранного устройства в JSON-структуру, совместимую со SmartIR profile workflow.
+
+Пример данных:
+
+```yaml
+location_id: cabinet
+device_id: yamaha_amp
+```
+
+Экспорт должен сохранять исходные IR-коды без перекодирования. Точный SmartIR JSON schema нужно подтвердить на установленной версии SmartIR `v1.18.1` перед финализацией export.
+
+### 7.7 `ir_learning_hub.add_device`
+
+Добавляет новое управляемое IR-устройство в Profile Builder registry.
 
 Пример данных:
 
@@ -347,7 +380,7 @@ name: Усилитель Yamaha
 type: generic
 ```
 
-### 7.6 `ir_learning_hub.add_command`
+### 7.8 `ir_learning_hub.add_command`
 
 Добавляет новую команду к устройству.
 
@@ -360,29 +393,25 @@ command_id: power
 name: Power
 ```
 
-### 7.7 `ir_learning_hub.delete_command`
+### 7.9 `ir_learning_hub.delete_command`
 
 Удаляет команду.
 
-### 7.8 `ir_learning_hub.rename_device`
+### 7.10 `ir_learning_hub.rename_device`
 
 Переименовывает устройство без изменения его внутреннего ID.
 
-### 7.9 `ir_learning_hub.rename_command`
+### 7.11 `ir_learning_hub.rename_command`
 
 Переименовывает команду без изменения её внутреннего ID.
 
-### 7.10 `ir_learning_hub.export_registry`
+### 7.12 `ir_learning_hub.export_registry`
 
-Экспортирует текущую базу IR-кодов.
+Экспортирует текущую внутреннюю базу IR-кодов Profile Builder.
 
-### 7.11 `ir_learning_hub.import_registry`
+### 7.13 `ir_learning_hub.import_registry`
 
-Импортирует базу IR-кодов с проверкой версии и структуры.
-
-## 8. Entities
-
-Интеграция должна создавать минимум одну диагностическую entity.
+Импортирует внутреннюю базу IR-кодов с проверкой версии и структуры.
 
 ### 8.1 Sensor: `sensor.ir_learning_hub_status`
 
@@ -433,9 +462,11 @@ last_updated: "2026-06-09T16:42:00+00:00"
 - выбор устройства;
 - выбор команды;
 - кнопку `Learn`;
+- кнопку `Read code` или автоматическое чтение кода после обучения;
 - кнопку `Test`;
 - кнопку `Save`;
-- кнопку `Send`;
+- кнопку `Export SmartIR JSON`;
+- отображение полученного base64-кода;
 - отображение текущего статуса;
 - отображение последнего действия;
 - отображение ошибки, если она есть.
@@ -449,7 +480,7 @@ IR Пульт
 Устройство: [Усилитель Yamaha ▼]
 Команда:    [Power ▼]
 
-[Learn] [Test] [Save] [Send]
+[Learn] [Read code] [Test] [Save] [Export]
 
 Статус: Код получен, ожидает проверки
 Последнее: 16:42 — Усилитель Yamaha / Power
@@ -460,10 +491,10 @@ IR Пульт
 Карточка должна реализовывать безопасный сценарий:
 
 ```text
-Learn → код получен → Test → Save
+Learn → Read code → Test → Save → Export SmartIR JSON
 ```
 
-Не допускается автоматическое перезаписывание существующей команды сразу после обучения без явного подтверждения пользователя.
+Не допускается автоматическое перезаписывание существующей команды сразу после обучения без явного подтверждения пользователя. `Export SmartIR JSON` должен использовать только сохранённые команды.
 
 ### 9.3 Управление устройствами и командами
 
@@ -480,7 +511,7 @@ Learn → код получен → Test → Save
 
 ### 9.4 Button Grid
 
-После реализации базовой карточки должна быть добавлена сетка команд выбранного устройства.
+После реализации базовой карточки может быть добавлена сетка команд выбранного устройства для быстрой проверки профиля перед экспортом.
 
 Пример:
 
@@ -490,13 +521,15 @@ Learn → код получен → Test → Save
 [Play] [Pause] [Stop] [Next]
 ```
 
-Каждая кнопка вызывает:
+Каждая кнопка вызывает диагностическую отправку через native ZHA API:
 
 ```yaml
 service: ir_learning_hub.send
 ```
 
 с соответствующими `location_id`, `device_id`, `command_id`.
+
+Эта сетка не является заменой SmartIR runtime. Она нужна только для проверки сохранённых кодов до экспорта.
 
 ## 10. Helpers и UI-состояние
 
@@ -644,16 +677,16 @@ incompatible_version
 Learn → получить код → Send → устройство реагирует → перезапуск HA → Send → устройство снова реагирует
 ```
 
-Для проверенного TS1201 этот критерий не выполнен через стандартные HA API, потому что код не попадает в event bus и не читается через `zha.read_zigbee_cluster_attributes`.
+Для проверенного TS1201 этот критерий теперь технически достижим через native ZHA API: `IRLearn` и `IRSend` работают через HA services, а `last_learned_ir_code` читается через WebSocket command `zha/devices/clusters/attributes/value`.
 
 Phase 0 считается завершённой как исследовательская фаза, потому что:
 
 - `IRLearn` запускается через HA service;
 - устройство физически принимает IR-сигнал;
-- quirk содержит `last_learned_ir_code`;
+- quirk содержит `last_learned_ir_code`, доступный через ZHA WebSocket API;
 - `IRSend` вызывается через HA service;
-- точка разрыва локализована: выученный код недоступен через внешние HA API;
-- для Phase 1 определён обязательный путь: прямой доступ к zigpy device object внутри custom integration.
+- IR Wrapper не нужен и не должен использоваться как transport;
+- для Phase 1 определён основной путь: native ZHA API для learn/read/send.
 
 ### Тесты
 
@@ -716,21 +749,22 @@ custom_components/ir_learning_hub/
 
 Требования к `zha_adapter.py` для проверенного TS1201:
 
-- получить ZHA device proxy через `async_get_zha_device_proxy(hass, ieee)`;
-- получить `zigpy_device` из proxy;
 - работать с endpoint `1` и cluster `zosung_ircontrol` / `0xE004`;
-- запускать `IRLearn` командой `1` с `on_off: true`;
+- запускать `IRLearn` командой `1` с `on_off: "true"` через `zha.issue_zigbee_cluster_command`;
 - отправлять `IRSend` командой `2` с параметром `code`;
-- читать `last_learned_ir_code` напрямую из zigpy cluster;
+- читать `last_learned_ir_code` через `zha/devices/clusters/attributes/value` (`endpoint_id: 1`, `cluster_id: 57348`, `attribute_id: 0`);
+- использовать прямой доступ к ZHA device proxy / zigpy device object только как fallback, если native WebSocket/API путь недоступен из custom integration;
 - держать learning window открытым повторным запуском `IRLearn` примерно каждые 8 секунд до `learning_timeout`;
 - корректно обрабатывать battery EndDevice: перед обучением пробуждать устройство через identify button или эквивалентный wake-up сценарий.
 
 Реализовать services:
 
 - `ir_learning_hub.learn`;
+- `ir_learning_hub.read_last_code`;
 - `ir_learning_hub.test_last_learned`;
 - `ir_learning_hub.save_last_learned`;
 - `ir_learning_hub.send`;
+- `ir_learning_hub.export_smartir`;
 - `ir_learning_hub.add_device`;
 - `ir_learning_hub.add_command`.
 
@@ -753,7 +787,9 @@ custom_components/ir_learning_hub/
 - Проверка добавления устройства.
 - Проверка добавления команды.
 - Проверка запрета дубликатов.
-- Проверка сохранения и чтения IR-кода.
+- Проверка чтения IR-кода через ZHA WebSocket API.
+- Проверка сохранения IR-кода во внутренний registry.
+- Проверка SmartIR JSON export на установленной версии SmartIR.
 - Ручной end-to-end тест с реальным IR-устройством.
 
 ## Фаза 2. Status entity и базовая диагностика
@@ -789,7 +825,7 @@ custom_components/ir_learning_hub/
 
 ### Цель
 
-Дать пользователю простой UI для обучения и отправки команд.
+Дать пользователю простой UI-мастер для обучения команд и сборки SmartIR-профиля.
 
 ### Объём
 
@@ -799,6 +835,9 @@ custom_components/ir_learning_hub/
 - выбор device;
 - выбор command;
 - кнопки `Learn`, `Test`, `Save`, `Send`;
+- кнопку `Read code` или автоматическое чтение после `Learn`;
+- кнопку `Export SmartIR JSON`;
+- отображение полученного base64-кода;
 - отображение статуса;
 - отображение ошибок.
 
@@ -807,7 +846,7 @@ custom_components/ir_learning_hub/
 Пользователь может без Developer Tools выполнить сценарий:
 
 ```text
-выбрать устройство → выбрать команду → Learn → Test → Save → Send
+выбрать устройство → выбрать команду → Learn → Read code → Test → Save → Export SmartIR JSON
 ```
 
 ### Тесты
@@ -816,9 +855,10 @@ custom_components/ir_learning_hub/
 - Список устройств читается из registry.
 - Список команд обновляется при смене устройства.
 - `Learn` вызывает правильный service.
+- `Read code` получает attribute `0` через backend service.
 - `Test` отправляет последний код без сохранения.
 - `Save` сохраняет последний код.
-- `Send` отправляет сохранённую команду.
+- `Export SmartIR JSON` формирует профиль для SmartIR.
 - Ошибка отображается в карточке.
 
 ## Фаза 4. Управление устройствами и командами из UI
@@ -855,17 +895,17 @@ custom_components/ir_learning_hub/
 
 ### Цель
 
-Сделать удобный пульт для повседневного управления.
+Сделать удобную сетку команд для проверки профиля перед экспортом.
 
 ### Объём
 
-Для выбранного устройства карточка отображает сетку всех сохранённых команд.
+Для выбранного устройства карточка отображает сетку всех сохранённых команд Profile Builder.
 
-Каждая кнопка вызывает `ir_learning_hub.send`.
+Каждая кнопка вызывает test/send через native ZHA API для проверки сохранённого кода. Это диагностический режим Profile Builder, а не замена SmartIR runtime.
 
 ### Критерии готовности
 
-Пользователь может управлять устройством одним нажатием без выбора команды из списка.
+Пользователь может быстро проверить сохранённые команды перед экспортом SmartIR JSON.
 
 ### Тесты
 
@@ -993,20 +1033,22 @@ cool_23_auto_swing_off
 Минимальная полезная версия включает только:
 
 1. один ZHA IR-передатчик;
-2. generic IR devices;
-3. хранение в `.storage`;
-4. services для learn/test/save/send;
+2. generic IR devices / команды профиля;
+3. хранение черновика профиля в `.storage`;
+4. services для learn/read_last_code/test/save/export_smartir;
 5. status sensor;
-6. простую Lovelace-карточку;
-7. ручное добавление устройств и команд через UI или services.
+6. простую Lovelace-карточку Profile Builder;
+7. экспорт JSON под SmartIR.
 
 MVP не включает:
 
+- собственный полноценный runtime для готовых профилей;
 - climate IR;
 - Hermes Agent;
 - HACS-публикацию;
 - поддержку нескольких пультов;
-- автоматическую базу кодов.
+- автоматическую базу кодов;
+- IR Wrapper transport.
 
 ## 17. Основные риски
 
@@ -1014,13 +1056,19 @@ MVP не включает:
 
 Если устройство не отдаёт выученный код или не принимает код на отправку, проект невозможен без поддержки на уровне ZHA/quirk.
 
-Статус после Phase 0: риск подтверждён частично. IRLearn и IRSend работают через HA services, но выученный код не доступен через стандартные HA API/event bus. Митигируется в Phase 1 прямым доступом custom integration к ZHA/zigpy runtime objects.
+Статус после дополнительных проверок Phase 0: главный блокер снят. IRLearn и IRSend работают через HA services, а `last_learned_ir_code` доступен через ZHA WebSocket API `zha/devices/clusters/attributes/value`. Оставшийся риск — подтвердить непустое значение после реального обучения и успешную отправку сохранённого кода после перезапуска Home Assistant.
 
 ### 17.2 Нестабильный формат Tuya-команд
 
 Tuya IR-пульты могут использовать нестандартные manufacturer-specific команды.
 
-Митигируется ограничением первой версии на одну проверенную модель.
+Митигируется ограничением первой версии на одну проверенную модель и сохранением кода как opaque string без перекодирования.
+
+### 17.2.1 SmartIR export schema
+
+SmartIR `v1.18.1` установлен и может быть runtime для готовых профилей, но точная JSON-схема экспорта должна быть подтверждена на локальной установке.
+
+Митигируется отдельным тестом `export_smartir`: экспортированный профиль должен импортироваться/использоваться SmartIR без ручной правки структуры.
 
 ### 17.3 Слишком сложный UI
 
@@ -1035,7 +1083,7 @@ Tuya IR-пульты могут использовать нестандартн�
 Митигируется обязательным сценарием:
 
 ```text
-Learn → Test → Save
+Learn → Read code → Test → Save
 ```
 
 ## 18. Критерий успеха проекта
@@ -1045,11 +1093,11 @@ Learn → Test → Save
 1. добавить IR-устройство;
 2. добавить команду;
 3. обучить команду с физического пульта;
-4. проверить её до сохранения;
-5. сохранить команду;
-6. отправить команду из UI;
-7. отправить команду через Home Assistant service;
-8. перезапустить Home Assistant и не потерять базу кодов.
+4. прочитать выученный код через ZHA WebSocket API;
+5. проверить её до сохранения через `IRSend`;
+6. сохранить команду во внутренний registry;
+7. экспортировать SmartIR JSON;
+8. перезапустить Home Assistant и не потерять черновик профиля и сохранённые коды.
 
 ## 19. Phase 0 Device Notes
 
@@ -1082,10 +1130,10 @@ data:
   command: 1
   command_type: "server"
   params:
-    on_off: true
+    on_off: "true"
 ```
 
-Для проверенного quirk `on_off: true` соответствует активному режиму обучения в Tuya/Zosung протоколе.
+Для проверенного quirk `on_off: "true"` соответствует активному режиму обучения в Tuya/Zosung протоколе. Команда возвращает `[]` при успешном вызове.
 
 IRSend:
 
@@ -1099,10 +1147,22 @@ data:
   command: 2
   command_type: "server"
   params:
-    code: "BASE64_OR_PLAIN_IR_CODE"
+    code: "BASE64_IR_CODE"
 ```
 
-Команда отправки возвращает HTTP 200 при вызове с синтаксически корректным payload. Полная e2e-проверка реакции устройства требует сначала получить реальный код через custom integration.
+Команда отправки возвращает `[]` при успешном вызове. Проверка с пустым `code: ""` подтверждает доступность transport-команды, но не проверяет реакцию реального устройства.
+
+Read learned code:
+
+```text
+WebSocket command: zha/devices/clusters/attributes/value
+ieee: b0:e8:e8:ff:fe:16:ef:35
+endpoint_id: 1
+cluster_id: 57348
+attribute_id: 0
+```
+
+Текущее проверенное значение attribute `0`: пустая строка `""`, что соответствует состоянию «код ещё не обучен или не прочитан после обучения».
 
 ### 19.3 Неработающие операции
 
@@ -1110,11 +1170,28 @@ data:
 - Подписка на `zha_event` не получает событий от TS1201 при обучении.
 - Подписка на event bus без фильтра за 60 секунд не показывает событий от TS1201.
 - State entity `switch.kabinet_pult_distantsionnyi_audio` не меняется при физическом обучении.
-- Quirk сохраняет код во внутреннем zigpy device object, но не публикует его наружу через стандартный HA event bus.
+- IR Wrapper несовместим с HA 2026.6.1: при установке вызывает `KeyError: 'discovery_keys'` и crash Home Assistant, поэтому удалён из `custom_components` и не используется.
 
-### 19.4 Механизм получения кода для Phase 1
+### 19.4 Рабочий механизм получения кода для Phase 1
 
-Единственный подтверждённый путь для custom integration — прямой доступ к zigpy device object через ZHA helper:
+Подтверждённый путь для Profile Builder — native ZHA WebSocket API:
+
+```text
+zha/devices/clusters/attributes/value
+```
+
+Параметры:
+
+```text
+ieee: b0:e8:e8:ff:fe:16:ef:35
+endpoint_id: 1
+cluster_id: 57348
+attribute_id: 0
+```
+
+Ожидаемое значение — строка с base64-encoded IR timing data. Пустая строка означает, что код ещё не обучен/не обновился.
+
+Fallback для backend, если WebSocket command недоступна из custom integration runtime, — прямой доступ к zigpy device object через ZHA helper:
 
 ```python
 from homeassistant.components.zha.helpers import async_get_zha_device_proxy
@@ -1127,7 +1204,13 @@ attrs, failed = await cluster.read_attributes(["last_learned_ir_code"])
 code = attrs.get("last_learned_ir_code")
 ```
 
-Дополнительно можно проверить listener на изменение cluster attribute внутри runtime-объекта интеграции, но он не должен быть единственным механизмом до подтверждения стабильности после перезапуска Home Assistant.
+Fallback не должен использоваться как основной путь, пока native ZHA API работает.
+
+### 19.4.1 IR Wrapper и SmartIR
+
+IR Wrapper не является рабочим transport для HA 2026.6.1 и исключается из целевой архитектуры.
+
+SmartIR `v1.18.1` установлен и остаётся целевым runtime для готовых профилей. IR Learning Hub должен экспортировать профили/команды в формат, пригодный для SmartIR, но не обязан заменять SmartIR runtime.
 
 ### 19.5 EndDevice требования
 
@@ -1153,29 +1236,30 @@ JgBgAAABK5ESNhI2EjYRNhE2EwANBQ==
 
 ### 19.7 Вердикт Phase 0
 
-Риск 17.1 подтверждён:
+Риск 17.1 пересмотрен после дополнительных проверок:
 
-- устройство физически работает: LED горит, IRLearn активируется, IR-сигнал принимается;
-- стандартные HA API не дают доступа к выученному коду;
+- устройство найдено в ZHA, quirk `zhaquirks.tuya.ts1201.ZosungIRBlaster` применён, cluster `0xE004` присутствует;
+- `IRLearn` работает через `zha.issue_zigbee_cluster_command` и возвращает `[]`;
+- `IRSend` работает через `zha.issue_zigbee_cluster_command` и возвращает `[]`;
+- `last_learned_ir_code` доступен через ZHA WebSocket API `zha/devices/clusters/attributes/value`;
 - event bus не публикует IR-события TS1201;
-- backend custom integration возможен, но должен обращаться к ZHA/zigpy runtime objects;
-- scripts/helpers без custom integration не подходят для сценария обучения.
+- IR Wrapper не работает на HA 2026.6.1 и не нужен;
+- native ZHA API заменяет IR Wrapper как transport.
 
-Phase 0 завершена. Phase 1 может начинаться с пониманием, что IRLearn/IRSend через ZHA services работают, а получение кода требует прямого доступа к zigpy device object.
+Phase 0 завершена. Phase 1 может начинаться как SmartIR Profile Builder: Learn через ZHA service, Read через ZHA WebSocket API, Test/Send через ZHA service, Save во внутренний registry, Export в SmartIR JSON.
 
 ### 19.8 Открытые проверки для начала Phase 1
 
 Перед полноценной реализацией services нужно сделать минимальный probe внутри custom integration:
 
-1. подтвердить, что `async_get_zha_device_proxy(hass, ieee)` доступен в целевой версии Home Assistant;
-2. подтвердить фактический путь к cluster: `zigpy_device.endpoints[1].zosung_ircontrol` или альтернативное имя/ID;
-3. прочитать `last_learned_ir_code` после физического обучения и зафиксировать реальный тип/формат значения;
-4. проверить, очищается ли `last_learned_ir_code` между попытками обучения или нужно хранить previous value и ждать изменения;
-5. проверить, работает ли cluster attribute listener после reload integration и restart Home Assistant;
-6. отправить прочитанный код через `IRSend` и подтвердить реакцию реального CD-плеера;
-7. повторить отправку после перезапуска Home Assistant, чтобы подтвердить пригодность сохранённого registry-кода.
+1. вызвать `zha/devices/clusters/attributes/value` из custom integration runtime и подтвердить, что backend может читать attribute `0` без frontend-only ограничений;
+2. выполнить реальное обучение кнопки CD-пульта и получить непустой base64-код;
+3. проверить, очищается ли `last_learned_ir_code` между попытками обучения или нужно хранить previous value и ждать изменения;
+4. отправить прочитанный код через `IRSend` и подтвердить реакцию реального CD-плеера;
+5. повторить отправку после перезапуска Home Assistant, чтобы подтвердить пригодность сохранённого registry-кода;
+6. подтвердить SmartIR JSON schema для SmartIR `v1.18.1` и успешное использование экспортированного профиля.
 
-До выполнения этих проверок storage и service contracts можно реализовывать, но `learn` должен считаться experimental.
+До выполнения этих проверок storage и service contracts можно реализовывать, но `export_smartir` должен считаться experimental.
 
 ## 20. Multi-transmitter и portability
 
