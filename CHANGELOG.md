@@ -8,6 +8,13 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.4 - 2026-06-10
+
+### Fixed
+
+- Added repository-level brand assets so HACS can show the integration icon in its downloaded repositories list.
+- Published a new release so HACS can refresh update metadata and changelog information.
+
 ## 0.1.3 - 2026-06-10
 
 ### Added
