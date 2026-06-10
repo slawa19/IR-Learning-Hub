@@ -51,10 +51,10 @@ https://github.com/slawa19/IR-Learning-Hub
 
 Use category `Integration`.
 
-HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release tag `v0.1.5` must contain:
+HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release tag `v0.1.6` must contain:
 
 ```json
-"version": "0.1.5"
+"version": "0.1.6"
 ```
 
 If HACS shows an error such as `The version fb1af13 for this integration can not be used with HACS`, create or select a release/tag version instead of installing that commit hash.
@@ -62,8 +62,8 @@ If HACS shows an error such as `The version fb1af13 for this integration can not
 For a new release, update `manifest.json`, commit the change, then create and push a matching semantic tag:
 
 ```text
-git tag v0.1.5
-git push origin v0.1.5
+git tag v0.1.6
+git push origin v0.1.6
 ```
 
 ## Add the Integration

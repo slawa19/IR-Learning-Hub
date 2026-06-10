@@ -8,6 +8,20 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.6 - 2026-06-10
+
+### Fixed
+
+- Export and import profile actions now open from the device menu even when the device is not selected in the sidebar.
+- Export/import panel no longer stretches the card: JSON keeps its formatting and scrolls instead of wrapping, and the action buttons wrap on narrow cards.
+- Card no longer re-renders on every Home Assistant state update, which previously caused hover flicker, dropped clicks, and lost input focus while typing.
+
+### Changed
+
+- Export/import panel buttons are now icon-only with tooltips, matching the rest of the card.
+- Add-location, add-device, and new-command forms are more compact: inline placeholder hints, a "?" tooltip for the ID rule, and icon-only confirm/cancel buttons.
+- The header refresh button is now labelled "Reload list" to clarify that it re-reads the registry after external changes.
+
 ## 0.1.5 - 2026-06-10
 
 ### Changed

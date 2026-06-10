@@ -1,4 +1,4 @@
-const IR_LEARNING_HUB_CARD_VERSION = "0.2.0-2026-06-10";
+const IR_LEARNING_HUB_CARD_VERSION = "0.1.6";
 
 class IRLearningHubCard extends HTMLElement {
   constructor() {
@@ -487,15 +487,17 @@ class IRLearningHubCard extends HTMLElement {
   _renderMain() {
     if (this._wizard) return this._renderWizard();
 
+    // Icon/profile panels are opened from per-item menus and act on their own
+    // device context, so they render regardless of the current sidebar selection.
+    if (this._iconEdit) return this._panelHead(this._iconEdit) + this._renderIconPanel();
+    if (this._panel) return this._panelHead(this._panel) + this._renderProfilePanel();
+
     if (!this._selDev) {
       return `<div class="empty">${this._x(this._t("selectDevice"))}<br><span class="hint">${this._x(this._t("orCreateNew"))}</span></div>`;
     }
 
     const dev = this._dev();
     const head = `<div class="remote-head">${this._x(dev?.name || this._selDev)}</div>`;
-
-    if (this._iconEdit) return head + this._renderIconPanel();
-    if (this._panel) return head + this._renderProfilePanel();
 
     const cmds = this._cmds();
     const cmdEntries = Object.entries(cmds);
@@ -553,9 +555,19 @@ class IRLearningHubCard extends HTMLElement {
       <div class="remote-foot">${footer}</div>`;
   }
 
+  _deviceOf(ctx) {
+    const loc = (this._registry.locations || {})[ctx.locId] || {};
+    return (loc.devices || {})[ctx.devId] || {};
+  }
+
+  _panelHead(ctx) {
+    const dev = this._deviceOf(ctx);
+    return `<div class="remote-head">${this._x(dev.name || ctx.devId || this._selDev)}</div>`;
+  }
+
   _renderIconPanel() {
     const e = this._iconEdit;
-    const cmd = (this._cmds() || {})[e.cmdId] || {};
+    const cmd = (this._deviceOf(e).commands || {})[e.cmdId] || {};
     const chips = this._suggestIcons(cmd.name || e.cmdId).map(ic => `
       <button class="chip${e.icon === ic ? " sel" : ""}" data-act="pickIcon" data-icon="${this._x(ic)}" title="${this._x(ic)}">
         <ha-icon icon="${this._x(ic)}"></ha-icon>
@@ -589,13 +601,13 @@ class IRLearningHubCard extends HTMLElement {
       <div class="panel">
         <div class="panel-title">${this._x(isExport ? this._t("exportProfile") : this._t("importProfile"))}</div>
         <div class="panel-hint">${this._x(isExport ? this._t("exportHint") : this._t("importHint"))}</div>
-        <textarea class="ta" data-panel-text ${isExport ? "readonly" : ""} placeholder="${isExport ? "" : this._x(this._t("pasteJson"))}">${this._x(p.text)}</textarea>
+        <textarea class="ta" data-panel-text wrap="off" ${isExport ? "readonly" : ""} placeholder="${isExport ? "" : this._x(this._t("pasteJson"))}">${this._x(p.text)}</textarea>
         <div class="form-row">
           ${isExport ? `
-            <button class="btn p" data-act="copyProfile"><ha-icon icon="mdi:content-copy"></ha-icon><span>${this._x(this._t("copy"))}</span></button>
-            <button class="btn" data-act="downloadProfile"><ha-icon icon="mdi:download"></ha-icon><span>${this._x(this._t("download"))}</span></button>
+            <button class="btn p icon-only" data-act="copyProfile" title="${this._x(this._t("copy"))}" aria-label="${this._x(this._t("copy"))}"><ha-icon icon="mdi:content-copy"></ha-icon></button>
+            <button class="btn icon-only" data-act="downloadProfile" title="${this._x(this._t("download"))}" aria-label="${this._x(this._t("download"))}"><ha-icon icon="mdi:download"></ha-icon></button>
           ` : `
-            <button class="btn p" data-act="runImport" ${this._busy ? "disabled" : ""}><ha-icon icon="mdi:tray-arrow-down"></ha-icon><span>${this._x(this._t("import"))}</span></button>
+            <button class="btn p icon-only" data-act="runImport" ${this._busy ? "disabled" : ""} title="${this._x(this._t("import"))}" aria-label="${this._x(this._t("import"))}"><ha-icon icon="mdi:tray-arrow-down"></ha-icon></button>
           `}
           <button class="btn icon-only" data-act="cancelPanel" title="${this._x(this._t("cancel"))}" aria-label="${this._x(this._t("cancel"))}">
             <ha-icon icon="mdi:close"></ha-icon>
@@ -651,9 +663,11 @@ class IRLearningHubCard extends HTMLElement {
       this._iconEdit = { locId: m.locId, devId: m.devId, cmdId: m.cmdId, icon: this._cmds()[m.cmdId]?.icon || "" };
       this._render();
     } else if (act === "export") {
+      this._selLoc = m.locId; this._selDev = m.devId; this._expanded[m.locId] = true;
       this._exportProfile(m);
     } else if (act === "import") {
-      this._panel = { mode: "import", text: "" };
+      this._selLoc = m.locId; this._selDev = m.devId; this._expanded[m.locId] = true;
+      this._panel = { mode: "import", text: "", locId: m.locId, devId: m.devId };
       this._render();
     }
   }
@@ -734,7 +748,7 @@ class IRLearningHubCard extends HTMLElement {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${this._selDev || "profile"}.json`;
+    a.download = `${this._panel?.devId || this._selDev || "profile"}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
@@ -756,12 +770,14 @@ class IRLearningHubCard extends HTMLElement {
       this._render();
       return;
     }
+    const locId = this._panel?.locId || this._selLoc;
+    const devId = this._panel?.devId || this._selDev;
     await this._run(async () => {
       let count = 0;
       for (const [cmdId, cmd] of entries) {
         await this._call("save_command", {
-          location_id: this._selLoc,
-          ir_device_id: this._selDev,
+          location_id: locId,
+          ir_device_id: devId,
           command_id: cmdId,
           name: cmd.name || cmdId,
           code: cmd.code,
@@ -769,7 +785,7 @@ class IRLearningHubCard extends HTMLElement {
         });
         if (cmd.icon)
           await this._call("update_command", {
-            location_id: this._selLoc, ir_device_id: this._selDev,
+            location_id: locId, ir_device_id: devId,
             command_id: cmdId, icon: cmd.icon,
           });
         count++;
@@ -1445,13 +1461,15 @@ const STYLES = `
   }
   .icon-preview ha-icon { --mdc-icon-size: 24px; }
   .ta {
-    width: 100%; box-sizing: border-box; min-height: 150px; resize: vertical;
+    width: 100%; box-sizing: border-box; min-height: 150px; max-height: 320px;
+    resize: vertical;
     padding: 10px; border: 1px solid var(--divider-color); border-radius: 6px;
     background: var(--card-background-color); color: var(--primary-text-color);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+    line-height: 1.45; white-space: pre; overflow: auto; tab-size: 2;
   }
   .ta:focus { outline: 0; border-color: var(--primary-color); box-shadow: 0 0 0 1px var(--primary-color); }
-  .panel .form-row { justify-content: flex-start; }
+  .panel .form-row { justify-content: flex-start; flex-wrap: wrap; }
 
   .remote-foot { margin-top: 4px; }
   .add-cmd-btn {

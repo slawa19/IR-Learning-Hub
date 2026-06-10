@@ -140,13 +140,13 @@ Add this repository as a HACS custom repository with category `Integration`:
 https://github.com/slawa19/IR-Learning-Hub
 ```
 
-Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.5` must contain:
+Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.6` must contain:
 
 ```json
-"version": "0.1.5"
+"version": "0.1.6"
 ```
 
-Do not install a raw commit SHA as a HACS version; HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.5` so HACS can show normal version numbers.
+Do not install a raw commit SHA as a HACS version; HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.6` so HACS can show normal version numbers.
 
 Short version:
 
