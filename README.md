@@ -140,13 +140,13 @@ Add this repository as a HACS custom repository with category `Integration`:
 https://github.com/slawa19/IR-Learning-Hub
 ```
 
-Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.6` must contain:
+Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.7` must contain:
 
 ```json
-"version": "0.1.6"
+"version": "0.1.7"
 ```
 
-Do not install a raw commit SHA as a HACS version; HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.6` so HACS can show normal version numbers.
+Do not install a raw commit SHA as a HACS version; HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.7` so HACS can show normal version numbers.
 
 Short version:
 
@@ -162,7 +162,7 @@ Short version:
 5. Add the Lovelace card resource if you want to use the bundled UI:
 
 	 ```yaml
-	 url: /ir_learning_hub/ir-learning-hub-card.js?v=6
+	 url: /ir_learning_hub/ir-learning-hub-card.js?v=7
 	 type: module
 	 ```
 

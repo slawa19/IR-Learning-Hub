@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.7 - 2026-06-10
+
+### Fixed
+
+- Profile export copy now falls back to textarea-based copying when the browser Clipboard API is unavailable.
+
 ## 0.1.6 - 2026-06-10
 
 ### Fixed

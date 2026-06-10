@@ -1,4 +1,4 @@
-const IR_LEARNING_HUB_CARD_VERSION = "0.1.6";
+const IR_LEARNING_HUB_CARD_VERSION = "0.1.7";
 
 class IRLearningHubCard extends HTMLElement {
   constructor() {
@@ -735,8 +735,22 @@ class IRLearningHubCard extends HTMLElement {
   }
 
   async _copyProfile() {
+    const textarea = this.shadowRoot.querySelector("[data-panel-text]");
+    const text = textarea?.value || this._panel?.text || "";
     try {
-      await navigator.clipboard.writeText(this._panel?.text || "");
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        if (!textarea) throw new Error("Clipboard text is not available");
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        if (!document.execCommand("copy")) {
+          throw new Error("Copy command was rejected");
+        }
+        textarea.setSelectionRange(0, 0);
+        textarea.blur();
+      }
       this._msg = this._t("copied"); this._render();
     } catch (e) {
       this._err = this._errText(e); this._render();
