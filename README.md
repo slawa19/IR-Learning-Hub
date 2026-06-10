@@ -162,7 +162,7 @@ Short version:
 5. Add the Lovelace card resource if you want to use the bundled UI:
 
 	 ```yaml
-	 url: /ir_learning_hub/ir-learning-hub-card.js?v=5
+	 url: /ir_learning_hub/ir-learning-hub-card.js?v=6
 	 type: module
 	 ```
 

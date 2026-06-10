@@ -97,7 +97,7 @@ The integration serves the bundled card at:
 Add it as a Lovelace resource:
 
 ```yaml
-url: /ir_learning_hub/ir-learning-hub-card.js?v=5
+url: /ir_learning_hub/ir-learning-hub-card.js?v=6
 type: module
 ```
 
@@ -135,7 +135,7 @@ Then call `ir_learning_hub.test_code` with the returned code. If the controlled 
 1. Replace the files under `custom_components/ir_learning_hub`.
 2. Restart Home Assistant.
 3. Refresh the browser cache if the Lovelace card changed.
-4. Bump the card resource query string if needed, for example `?v=5`.
+4. Bump the card resource query string if needed, for example `?v=6`.
 
 ## Uninstalling
 
