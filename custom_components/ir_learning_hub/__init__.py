@@ -196,7 +196,9 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 
         integration_path = Path(__file__).parent
         card_path = integration_path / "www" / "ir-learning-hub-card.js"
-        icon_path = integration_path / "brand" / "icon.png"
+        icon_path = integration_path / "icon.png"
+        if not icon_path.exists():
+            icon_path = integration_path / "brand" / "icon.png"
         await hass.http.async_register_static_paths(
             [
                 StaticPathConfig(FRONTEND_URL, str(card_path), True),
