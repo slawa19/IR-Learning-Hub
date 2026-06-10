@@ -53,10 +53,10 @@ https://github.com/slawa19/IR-Learning-Hub
 
 Use category `Integration`.
 
-HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release tag `v0.1.8` must contain:
+HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release tag `v0.1.9` must contain:
 
 ```json
-"version": "0.1.8"
+"version": "0.1.9"
 ```
 
 If HACS shows an error such as `The version fb1af13 for this integration can not be used with HACS`, create or select a release/tag version instead of installing that commit hash.
@@ -67,14 +67,14 @@ For a new release, keep these items in sync:
 - `custom_components/ir_learning_hub/www/ir-learning-hub-card.js`;
 - README and installation examples;
 - `CHANGELOG.md`;
-- git tag, for example `v0.1.8`;
+- git tag, for example `v0.1.9`;
 - GitHub Release for that tag.
 
 Create and push a matching semantic tag:
 
 ```text
-git tag v0.1.8
-git push origin v0.1.8
+git tag v0.1.9
+git push origin v0.1.9
 ```
 
 Then publish a GitHub Release from the same tag. HACS uses release metadata and tags to show normal versions, release notes, and update notifications.
@@ -110,7 +110,7 @@ The integration serves the bundled card at:
 Add it as a Lovelace resource:
 
 ```yaml
-url: /ir_learning_hub/ir-learning-hub-card.js?v=8
+url: /ir_learning_hub/ir-learning-hub-card.js?v=9
 type: module
 ```
 
@@ -155,7 +155,7 @@ You can also validate through the Lovelace card:
 1. Update through HACS, or replace the files under `custom_components/ir_learning_hub` for a manual install.
 2. Restart Home Assistant.
 3. Refresh the browser cache if the Lovelace card changed.
-4. Bump the card resource query string if needed, for example `?v=8`.
+4. Bump the card resource query string if needed, for example `?v=9`.
 
 If HACS still shows an older version, reload HACS data, confirm that the GitHub Release exists for the latest tag, and verify that `manifest.json` inside the downloaded release contains the same version.
 

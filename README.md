@@ -1,80 +1,45 @@
 # IR Learning Hub
 
-IR Learning Hub is a local Home Assistant custom integration for learning, storing, testing, and replaying infrared commands through a ZHA-connected Tuya TS1201 / MOES UFO-R11 IR blaster.
+IR Learning Hub is a local Home Assistant custom integration for learning, storing, testing, organizing, exporting, importing, and replaying infrared commands through a ZHA-connected Tuya TS1201 / MOES UFO-R11 IR blaster.
 
-The project is intentionally built around Home Assistant's native ZHA runtime. It does not require Tuya Cloud, Smart Life, Zigbee2MQTT, SmartIR, IR Wrapper, or helper-entity based storage for the main command path.
+It turns the TS1201 from a low-level ZHA device into a usable remote-control hub: learn a button from a physical remote, test it, save it under a stable command ID, replay it from Home Assistant services, and manage the command library from a Lovelace card.
 
-## The Problem
+The integration is intentionally local-first. It uses Home Assistant's native ZHA runtime and does not require Tuya Cloud, Smart Life, Zigbee2MQTT, SmartIR, IR Wrapper, scripts, or helper entities for the main command path.
 
-Many inexpensive Zigbee IR blasters can transmit infrared commands, but turning them into a maintainable Home Assistant command library is harder than it first appears. The Tuya TS1201 / MOES UFO-R11 exposes the required IR functionality through vendor-specific ZHA clusters and quirks, not through a polished end-user learning workflow.
+## What It Does
 
-For the confirmed TS1201 device, local ZHA access can start learning mode, read the last learned IR code from attribute `0`, and send that code back through the same control cluster. The technical challenge is that these capabilities are split across low-level ZHA service calls and backend cluster access:
+- Discovers supported ZHA IR transmitters during setup, with manual setup as a fallback.
+- Starts TS1201 learning mode and reads the learned IR code from ZHA.
+- Sends raw learned codes for testing before saving.
+- Stores verified commands in Home Assistant storage.
+- Organizes commands as `Location -> IR device -> Command`.
+- Exposes a stable Home Assistant service API for automations, scripts, and Developer Tools.
+- Provides a bundled Lovelace card for day-to-day use.
+- Supports command rename, relearn, delete, and optional `mdi:*` icons without replacing the stored IR code.
+- Exports and imports one device profile as JSON, so a command set can be moved to another logical remote without relearning.
+- Provides localized setup, services, sensor states, errors, and card UI in English, Russian, and Ukrainian.
 
-- learning requires a vendor-specific ZHA cluster command;
-- the learned code is exposed as a volatile attribute, not as a durable Home Assistant entity;
-- the code must be captured before it disappears or becomes stale;
-- users need stable command names, storage, testing, and replay from automations without manually copying base64 payloads between Developer Tools screens.
+## Current State
 
-IR Learning Hub addresses that gap by providing a small local integration that owns the workflow end to end: learn an IR command, read the code from ZHA, test it, save it in Home Assistant storage, and expose replay through services and a Lovelace card.
+IR Learning Hub is a functional Home Assistant custom integration for the confirmed TS1201 / MOES UFO-R11 ZHA path.
 
-## Alternatives Considered
+The implemented flow covers the full command lifecycle:
 
-Several approaches were evaluated before choosing the current native ZHA design.
+1. Select a supported ZHA transmitter in the config flow.
+2. Create locations and IR devices.
+3. Learn a command from a physical remote.
+4. Test the captured IR code.
+5. Save it with a stable ID and display name.
+6. Replay it from the Lovelace card, Home Assistant services, automations, or scripts.
+7. Maintain the library with rename, relearn, icon, delete, export, and import actions.
 
-### SmartIR runtime
+Saved commands survive Home Assistant restarts because they are stored through Home Assistant's `Store` API. The TS1201's last-learned-code attribute is volatile, so `read_last_code` can return `code_empty` after a restart until a new button is learned. This does not affect already saved commands.
 
-SmartIR is useful when a supported controller backend can send codes for a device profile. It also defines a JSON format for device command libraries. However, SmartIR `v1.18.1` does not provide a ZHA / TS1201 controller backend for this IR blaster. Generating SmartIR-compatible JSON would not, by itself, make SmartIR able to transmit through the TS1201.
-
-For that reason, SmartIR is not used as the MVP runtime. A future export feature may still generate SmartIR-like files for portability, but SmartIR does not control learning, storage, sending, or UI behavior in this project.
-
-### Tuya Cloud and Smart Life
-
-The TS1201 can be used through Tuya ecosystems, but the goal of this project is local Home Assistant control. Cloud-dependent operation would add external availability, privacy, account, and vendor API risks for a workflow that ZHA can already perform locally.
-
-Tuya Cloud and Smart Life were rejected for the core architecture because they are unnecessary for the confirmed hardware path and do not satisfy the local-first requirement.
-
-### Zigbee2MQTT
-
-Zigbee2MQTT is a valid Zigbee stack for many installations, but this project targets Home Assistant systems already using ZHA. Requiring a migration from ZHA to Zigbee2MQTT would increase operational complexity and would not solve the main product problem: users still need a command registry, learning flow, testing flow, and Home Assistant service interface.
-
-Zigbee2MQTT support can be reconsidered later as a separate transport adapter, but it is outside the current implementation.
-
-### IR Wrapper and helper entities
-
-IR Wrapper and Home Assistant helpers can be used to assemble manual workflows, but they are not a durable integration architecture. Storing codes in `input_text` helpers or scripts makes validation, migration, service responses, UI state, and command organization harder to maintain.
-
-This project uses Home Assistant's `Store` API for structured registry data and exposes explicit services instead of relying on helper entities as the final storage model.
-
-### Home Assistant core patches or monkey patching
-
-Patching Home Assistant core or monkey-patching ZHA internals would make the project fragile across Home Assistant releases. The implementation instead uses public Home Assistant service calls for sending and the available ZHA device proxy / zigpy cluster path for reading the learned attribute.
-
-## Why Native ZHA
-
-Native ZHA was chosen because it is the shortest reliable path for the confirmed device:
-
-- the TS1201 is already paired with ZHA;
-- the active quirk exposes the required Zosung IR control behavior;
-- learn and send are confirmed through cluster `0xE004` / `57348`;
-- learned codes can be read from attribute `0` through backend ZHA access;
-- Home Assistant services can expose the workflow to the UI, automations, scripts, and agents.
-
-The result is a local, narrowly scoped integration that solves the missing product workflow without replacing the user's Zigbee stack.
-
-## Current Status
-
-This repository is an early-stage custom integration. MVP-0 backend access has been validated on Home Assistant OS with ZHA and a confirmed TS1201 / MOES UFO-R11 device:
-
-- `learn_and_read` can start learning and return a new code from ZHA attribute `0x0000`.
-- Backend ZHA access works through `async_get_zha_device_proxy(hass, device_registry_id)`.
-- The real zigpy cluster is reachable through the nested ZHA device object.
-- Saved commands survive a Home Assistant restart and can be sent again.
-
-Known behavior: after a Home Assistant restart, `read_last_code` can return `code_empty` until a new IR button is learned. The TS1201's last-learned-code attribute is volatile; saved commands are stored separately and are not affected.
+The integration currently targets one confirmed hardware/profile combination. The architecture keeps the transport layer isolated so additional ZHA IR transmitter profiles can be added later without changing the registry or UI model.
 
 ## Supported Hardware
 
-The implementation is currently targeted at one confirmed profile:
+The confirmed profile is:
 
 | Field | Value |
 | --- | --- |
@@ -87,38 +52,201 @@ The implementation is currently targeted at one confirmed profile:
 | Send command | `2` |
 | Learned-code attribute | `0` |
 
-Cluster `0xED00` / `60672` may also appear on the device, but the MVP uses cluster `0xE004` because learn and send are confirmed there.
+Cluster `0xED00` / `60672` may also appear on the device, but the integration uses cluster `0xE004` because learn and send are confirmed there for the supported profile.
 
-## Features
+## Lovelace Card
 
-- Config flow with automatic ZHA transmitter discovery and manual fallback.
-- Native ZHA learn, read, test, and send operations.
-- Async polling for `learn_and_read` without blocking the Home Assistant event loop.
-- Structured command registry stored with Home Assistant `Store`.
-- Stable IDs for locations, IR devices, and commands.
-- Registry management services for create, update, rename, delete, list, save, and replay operations.
-- Optional Material Design icons for saved commands.
-- Device-profile export and import through the Lovelace card for moving commands between remotes.
-- Diagnostic status sensor.
-- Bundled multilingual Lovelace card served from the integration.
-- English, Russian, and Ukrainian translations for setup, services, sensor states, errors, and the card UI.
+The bundled card is the intended daily interface.
+
+It provides:
+
+- a tree of locations and IR devices;
+- inline add forms with name-first entry and automatic ID generation;
+- remote-style command buttons;
+- one-click sending;
+- command relearn from the command menu;
+- a three-step learning wizard;
+- command icon selection with `mdi:*` support;
+- inline rename actions;
+- delete confirmations;
+- device-profile export/import;
+- manual registry refresh after external changes.
+
+Example card configuration:
+
+```yaml
+type: custom:ir-learning-hub-card
+title: IR Learning Hub
+status_entity: sensor.ir_learning_hub_status
+timeout: 60
+poll_interval: 2
+```
+
+The card uses only `ir_learning_hub.*` services. It does not talk to ZHA directly.
+
+## Service API
+
+IR Learning Hub exposes services under the `ir_learning_hub` domain:
+
+- `learn`
+- `read_last_code`
+- `learn_and_read`
+- `test_code`
+- `save_command`
+- `send_command`
+- `list_commands`
+- `add_location`
+- `add_device`
+- `add_command`
+- `update_command`
+- `rename_location`
+- `rename_device`
+- `rename_command`
+- `delete_location`
+- `delete_device`
+- `delete_command`
+
+The Lovelace card is built on top of the same services that automations and scripts can use.
+
+Example saved-command replay:
+
+```yaml
+service: ir_learning_hub.send_command
+data:
+  location_id: cabinet
+  ir_device_id: cd_player
+  command_id: open_close
+```
+
+For complete schemas, response data, and error codes, see [docs/SERVICES.md](docs/SERVICES.md).
+
+## Installation
+
+See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed installation, update, and HACS notes.
+
+### HACS
+
+Add this repository as a HACS custom repository with category `Integration`:
+
+```text
+https://github.com/slawa19/IR-Learning-Hub
+```
+
+Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.9` must contain:
+
+```json
+"version": "0.1.9"
+```
+
+Do not install a raw commit SHA as a HACS version. HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.9` so HACS can show normal version numbers and release notes.
+
+### Lovelace Resource
+
+Add the bundled card as a Lovelace resource:
+
+```yaml
+url: /ir_learning_hub/ir-learning-hub-card.js?v=9
+type: module
+```
+
+After updating the card, bump the query string and hard-refresh the browser if Home Assistant still serves the old JavaScript.
+
+## Basic Usage
+
+Recommended card flow:
+
+1. Add a location.
+2. Add an IR device inside that location.
+3. Add a command. Enter the display name first; the card generates the ID automatically.
+4. Start learning.
+5. Point the physical remote at the TS1201 and press the desired button.
+6. Test the learned code or skip testing.
+7. Save the command.
+8. Send it from the command grid.
+
+Service-only flow:
+
+1. Call `ir_learning_hub.learn_and_read` with response data enabled.
+2. Point the physical IR remote at the TS1201 and press the desired button.
+3. Use the returned `code` with `ir_learning_hub.test_code`.
+4. If the target device responds, save it with `ir_learning_hub.save_command` and `verified: true`.
+5. Replay the saved command with `ir_learning_hub.send_command`.
+
+Example `save_command` data:
+
+```yaml
+location_id: cabinet
+ir_device_id: cd_player
+command_id: open_close
+name: Open/Close
+code: "<base64-code>"
+verified: true
+```
+
+IDs must match `[a-z0-9_]+`. Display names can be normal human-readable text.
+
+## Command Library
+
+The registry is structured like this:
+
+```text
+transmitter
+  location
+    IR device
+      command
+```
+
+Command records store the learned code, display name, format, verification flag, update timestamp, and optional display icon. Relearning a command replaces the IR code but preserves its icon.
+
+The device profile export/import feature exports one IR device's commands as JSON. Import writes those commands into the device selected from the menu and uses the same backend services as the card.
+
+## Home Assistant Integration Details
+
+- Storage: Home Assistant `Store`.
+- Main transport: Home Assistant ZHA.
+- Frontend: bundled Lovelace custom card served by the integration.
+- Status: translated diagnostic sensor.
+- Localization: `strings.json` and `translations/*.json` for backend surfaces, plus a card-side translation table.
+- HACS: release/tag based installation with repository icon assets under `brand/`.
+
+## Why Native ZHA
+
+The TS1201 exposes useful IR functionality through vendor-specific ZHA behavior rather than a polished Home Assistant entity model. IR Learning Hub keeps the transport local and uses the ZHA path already available in Home Assistant:
+
+- learn and send are handled by the confirmed Zosung control cluster;
+- the learned code is read from the backend ZHA device object;
+- saved commands live in Home Assistant storage instead of volatile device attributes;
+- services make the workflow available to the UI, automations, scripts, and agents.
+
+## Non-Goals
+
+The current architecture intentionally does not use:
+
+- Tuya Cloud or Smart Life as the runtime;
+- Zigbee2MQTT transport;
+- SmartIR as the sender;
+- Home Assistant helper entities as primary storage;
+- Home Assistant core patches or ZHA monkey patching;
+- a public IR code database.
+
+SmartIR-compatible export and additional transmitter transports may be considered later, but they are not required for the current ZHA command workflow.
 
 ## Repository Layout
 
 ```text
 custom_components/ir_learning_hub/
-	__init__.py              # integration setup and service registration
+	__init__.py              # integration setup, services, frontend paths
 	brand/                   # integration brand assets
-	config_flow.py           # transmitter setup flow
+	config_flow.py           # setup flow and ZHA transmitter discovery
 	const.py                 # constants and service names
 	device_profiles.py       # supported transmitter profile definitions
-	errors.py                # integration error type
+	errors.py                # localized integration error type
 	icon.png                 # local Home Assistant integration icon
 	sensor.py                # diagnostic status sensor platform
-	services.yaml            # Home Assistant service descriptions
+	services.yaml            # service field structure for Home Assistant
 	status.py                # in-memory status model
 	storage.py               # Store-backed command registry
-	strings.json             # English source strings for Home Assistant translations
+	strings.json             # English source strings for HA translations
 	translations/            # backend translations
 	zha_adapter.py           # ZHA learn/read/send adapter
 	www/ir-learning-hub-card.js
@@ -135,107 +263,6 @@ docs/
 	ТЗ Native ZHA IR Learning Hub.md
 ```
 
-## Installation
-
-See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed steps.
-
-### HACS
-
-Add this repository as a HACS custom repository with category `Integration`:
-
-```text
-https://github.com/slawa19/IR-Learning-Hub
-```
-
-Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.8` must contain:
-
-```json
-"version": "0.1.8"
-```
-
-Do not install a raw commit SHA as a HACS version; HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.8` so HACS can show normal version numbers.
-
-Short version:
-
-1. Copy or mount `custom_components/ir_learning_hub` into your Home Assistant configuration directory:
-
-	 ```text
-	 <ha_config>/custom_components/ir_learning_hub
-	 ```
-
-2. Restart Home Assistant.
-3. Add the integration from `Settings -> Devices & services -> Add integration -> IR Learning Hub`.
-4. Select the detected ZHA IR transmitter. If it is not listed, use manual setup and enter the transmitter IEEE, endpoint, cluster, timeout, and profile.
-5. Add the Lovelace card resource if you want to use the bundled UI:
-
-	 ```yaml
-	 url: /ir_learning_hub/ir-learning-hub-card.js?v=8
-	 type: module
-	 ```
-
-## Basic Usage
-
-The Lovelace card is the intended day-to-day UI:
-
-1. Add a location.
-2. Add an IR device inside that location.
-3. Add a command. The card asks for a display name first and generates a stable ID automatically.
-4. Follow the three-step learning wizard: record, test or skip, save.
-5. Send commands from the remote-style command grid.
-
-The most direct learning flow is:
-
-1. Call `ir_learning_hub.learn_and_read` with response data enabled.
-2. Point the physical IR remote at the TS1201 and press the desired button.
-3. Use the returned `code` with `ir_learning_hub.test_code`.
-4. If the target device responds, save it with `ir_learning_hub.save_command` and `verified: true`.
-5. Replay the saved command with `ir_learning_hub.send_command`.
-
-Example service data for saving a command:
-
-```yaml
-location_id: cabinet
-ir_device_id: cd_player
-command_id: open_close
-name: Open/Close
-code: "<base64-code>"
-verified: true
-```
-
-IDs must match `[a-z0-9_]+`. Display names can be human-readable strings.
-
-Use each row or command tile's overflow menu for management actions:
-
-- location menu: rename, delete;
-- device menu: rename, export profile, import profile, delete;
-- command menu: relearn, rename, choose icon, delete.
-
-Device-profile export/import uses JSON containing the selected device's commands. Import writes commands into the device selected from the menu; it does not require relearning those commands. Command icons are stored separately from IR codes and are preserved when a command is relearned.
-
-For a complete service reference, see [docs/SERVICES.md](docs/SERVICES.md).
-
-## Lovelace Card
-
-The first local card is bundled at:
-
-```text
-custom_components/ir_learning_hub/www/ir-learning-hub-card.js
-```
-
-Example card configuration:
-
-```yaml
-type: custom:ir-learning-hub-card
-title: IR Learning Hub
-status_entity: sensor.ir_learning_hub_status
-timeout: 60
-poll_interval: 2
-```
-
-The card uses only `ir_learning_hub.*` services. It does not talk to ZHA directly.
-
-The header refresh button reloads the command registry from Home Assistant storage. Use it after making changes from another browser tab, Developer Tools, automations, or scripts.
-
 ## Documentation
 
 - [Installation](docs/INSTALLATION.md)
@@ -250,9 +277,9 @@ The header refresh button reloads the command registry from Home Assistant stora
 
 ## Development Notes
 
-The integration intentionally keeps ZHA transport logic in `zha_adapter.py`, storage logic in `storage.py`, and UI behavior in the Lovelace card. The UI should call integration services and should not reimplement ZHA reads or Zigbee cluster traversal.
+The integration keeps ZHA transport logic in `zha_adapter.py`, registry logic in `storage.py`, setup logic in `config_flow.py`, and user workflow logic in the Lovelace card. The UI should call integration services and should not reimplement ZHA reads or Zigbee cluster traversal.
 
-When publishing a release, keep `manifest.json`, the Lovelace card version, README examples, installation docs, changelog, the git tag, and the GitHub Release in sync. HACS uses the release/tag and manifest version to decide what version users see.
+When publishing a release, keep `manifest.json`, the Lovelace card version, README examples, installation docs, changelog, the git tag, and the GitHub Release in sync. HACS uses the release/tag and manifest version to decide what users see.
 
 ## License
 

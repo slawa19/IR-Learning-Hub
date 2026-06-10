@@ -70,7 +70,7 @@ Try:
 Check:
 
 - Home Assistant was restarted after installing the integration;
-- the resource URL is `/ir_learning_hub/ir-learning-hub-card.js?v=8`;
+- the resource URL is `/ir_learning_hub/ir-learning-hub-card.js?v=9`;
 - the resource type is `module`;
 - the browser cache was refreshed;
 - the file exists at `custom_components/ir_learning_hub/www/ir-learning-hub-card.js`.
@@ -78,7 +78,7 @@ Check:
 The card logs its loaded version in the browser console:
 
 ```text
-IR-LEARNING-HUB-CARD 0.1.8
+IR-LEARNING-HUB-CARD 0.1.9
 ```
 
 If the console shows an older version, update the Lovelace resource query string and hard-refresh the browser.

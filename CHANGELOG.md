@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.9 - 2026-06-10
+
+### Changed
+
+- README now presents IR Learning Hub as a functional integration and reflects the current setup, card, service, localization, export/import, and HACS release workflow.
+
 ## 0.1.8 - 2026-06-10
 
 ### Changed
