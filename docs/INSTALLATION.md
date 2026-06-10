@@ -41,20 +41,19 @@ Restart Home Assistant after copying the files.
 2. Go to `Settings -> Devices & services`.
 3. Select `Add integration`.
 4. Search for `IR Learning Hub`.
-5. Enter the ZHA TS1201 transmitter settings.
+5. Select the detected ZHA IR transmitter.
 
-Default values are based on the confirmed test device:
+The config flow scans Home Assistant's ZHA device registry and lists devices that expose the supported IR control cluster. The saved configuration uses the selected device's own IEEE, endpoint, and cluster values.
+
+If your transmitter is not listed, choose manual setup and enter the values from the ZHA device details. The confirmed TS1201 / Zosung profile uses:
 
 ```text
-IEEE: b0:e8:e8:ff:fe:16:ef:35
 Profile: ts1201_zosung
 Endpoint: 1
 Cluster: 57348
 Learn timeout: 60
 Learn reassert interval: 8
 ```
-
-Replace the IEEE address with your own ZHA device IEEE.
 
 ## Add the Lovelace Card
 

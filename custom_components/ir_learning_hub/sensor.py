@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    STATUS_CODE_RECEIVED,
+    STATUS_ERROR,
+    STATUS_IDLE,
+    STATUS_LEARNING,
+    STATUS_SENDING,
+)
 
 
 async def async_setup_entry(
@@ -26,7 +33,16 @@ async def async_setup_entry(
 class IRLearningHubStatusSensor(SensorEntity):
     """Diagnostic status sensor."""
 
-    _attr_name = "IR Learning Hub Status"
+    _attr_has_entity_name = True
+    _attr_translation_key = "status"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [
+        STATUS_IDLE,
+        STATUS_LEARNING,
+        STATUS_SENDING,
+        STATUS_CODE_RECEIVED,
+        STATUS_ERROR,
+    ]
     _attr_icon = "mdi:remote"
 
     def __init__(self, status, entry_id: str) -> None:

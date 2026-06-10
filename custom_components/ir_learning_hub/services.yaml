@@ -1,15 +1,13 @@
+# Service names, descriptions, and field labels live in strings.json /
+# translations/*.json under the "services" key. This file only declares the
+# structure (fields, selectors, defaults, requirements).
+
 learn:
-  name: Start learning
-  description: Start IR learning mode on the configured ZHA transmitter.
   fields:
     transmitter_id:
-      name: Transmitter ID
-      description: Optional normalized transmitter ID. Omit when one transmitter is enabled.
       selector:
         text:
     timeout:
-      name: Timeout
-      description: Learn window duration in seconds.
       default: 60
       selector:
         number:
@@ -17,31 +15,23 @@ learn:
           mode: box
 
 read_last_code:
-  name: Read last code
-  description: Read the last learned IR code from ZHA attribute 0.
   fields:
     transmitter_id:
-      name: Transmitter ID
       selector:
         text:
 
 learn_and_read:
-  name: Learn and read
-  description: Start IR learning and wait until a new IR code appears.
   fields:
     transmitter_id:
-      name: Transmitter ID
       selector:
         text:
     timeout:
-      name: Timeout
       default: 60
       selector:
         number:
           min: 1
           mode: box
     poll_interval:
-      name: Poll interval
       default: 1
       selector:
         number:
@@ -49,254 +39,197 @@ learn_and_read:
           mode: box
 
 test_code:
-  name: Test code
-  description: Send a raw IR code without saving it.
   fields:
     transmitter_id:
-      name: Transmitter ID
       selector:
         text:
     code:
-      name: Code
       required: true
       selector:
         text:
 
 save_command:
-  name: Save command
-  description: Save or replace an IR command in the registry.
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     ir_device_id:
-      name: IR device ID
       required: true
       selector:
         text:
     command_id:
-      name: Command ID
       required: true
       selector:
         text:
     name:
-      name: Name
       required: true
       selector:
         text:
     code:
-      name: Code
       required: true
       selector:
         text:
     verified:
-      name: Verified
       default: false
       selector:
         boolean:
 
 send_command:
-  name: Send command
-  description: Send a saved IR command through the configured ZHA transmitter.
   fields:
     transmitter_id:
-      name: Transmitter ID
       selector:
         text:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     ir_device_id:
-      name: IR device ID
       required: true
       selector:
         text:
     command_id:
-      name: Command ID
       required: true
       selector:
         text:
 
 list_commands:
-  name: List commands
-  description: Return saved locations, IR devices, and commands.
   fields:
     transmitter_id:
-      name: Transmitter ID
       selector:
         text:
 
 add_location:
-  name: Add location
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     name:
-      name: Name
       required: true
       selector:
         text:
 
 add_device:
-  name: Add IR device
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     ir_device_id:
-      name: IR device ID
       required: true
       selector:
         text:
     name:
-      name: Name
       required: true
       selector:
         text:
     type:
-      name: Type
       default: generic
       selector:
         text:
 
 add_command:
-  name: Add command
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     ir_device_id:
-      name: IR device ID
       required: true
       selector:
         text:
     command_id:
-      name: Command ID
       required: true
       selector:
         text:
     name:
-      name: Name
       required: true
       selector:
         text:
 
 rename_location:
-  name: Rename location
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     name:
-      name: Name
       required: true
       selector:
         text:
 
 rename_device:
-  name: Rename IR device
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     ir_device_id:
-      name: IR device ID
       required: true
       selector:
         text:
     name:
-      name: Name
       required: true
       selector:
         text:
 
 rename_command:
-  name: Rename command
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     ir_device_id:
-      name: IR device ID
       required: true
       selector:
         text:
     command_id:
-      name: Command ID
       required: true
       selector:
         text:
     name:
-      name: Name
       required: true
       selector:
         text:
 
 delete_location:
-  name: Delete location
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     confirm:
-      name: Confirm
       required: true
       selector:
         boolean:
 
 delete_device:
-  name: Delete IR device
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     ir_device_id:
-      name: IR device ID
       required: true
       selector:
         text:
     confirm:
-      name: Confirm
       required: true
       selector:
         boolean:
 
 delete_command:
-  name: Delete command
   fields:
     location_id:
-      name: Location ID
       required: true
       selector:
         text:
     ir_device_id:
-      name: IR device ID
       required: true
       selector:
         text:
     command_id:
-      name: Command ID
       required: true
       selector:
         text:

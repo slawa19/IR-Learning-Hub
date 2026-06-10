@@ -10,6 +10,7 @@ CONF_IEEE = "ieee"
 CONF_LEARN_REASSERT_INTERVAL = "learn_reassert_interval"
 CONF_LEARN_TIMEOUT = "learn_timeout"
 CONF_PROFILE = "profile"
+CONF_ZHA_DEVICE = "zha_device"
 
 DEFAULT_CLUSTER_ID = 0xE004
 DEFAULT_ENDPOINT_ID = 1

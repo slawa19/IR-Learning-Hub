@@ -139,7 +139,7 @@ Short version:
 
 2. Restart Home Assistant.
 3. Add the integration from `Settings -> Devices & services -> Add integration -> IR Learning Hub`.
-4. Configure the TS1201 IEEE address, endpoint, cluster, timeout, and profile.
+4. Select the detected ZHA IR transmitter. If it is not listed, use manual setup and enter the transmitter IEEE, endpoint, cluster, timeout, and profile.
 5. Add the Lovelace card resource if you want to use the bundled UI:
 
 	 ```yaml
