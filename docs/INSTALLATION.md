@@ -51,13 +51,20 @@ https://github.com/slawa19/IR-Learning-Hub
 
 Use category `Integration`.
 
-HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release `0.1.0` must contain:
+HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release tag `v0.1.1` must contain:
 
 ```json
-"version": "0.1.0"
+"version": "0.1.1"
 ```
 
 If HACS shows an error such as `The version fb1af13 for this integration can not be used with HACS`, create or select a release/tag version instead of installing that commit hash.
+
+For a new release, update `manifest.json`, commit the change, then create and push a matching semantic tag:
+
+```text
+git tag v0.1.1
+git push origin v0.1.1
+```
 
 ## Add the Integration
 
@@ -90,7 +97,7 @@ The integration serves the bundled card at:
 Add it as a Lovelace resource:
 
 ```yaml
-url: /ir_learning_hub/ir-learning-hub-card.js?v=1
+url: /ir_learning_hub/ir-learning-hub-card.js?v=2
 type: module
 ```
 
