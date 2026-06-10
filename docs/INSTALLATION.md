@@ -33,6 +33,12 @@ The resulting path should contain `manifest.json`:
 <ha_config>/custom_components/ir_learning_hub/manifest.json
 ```
 
+The local integration icon is expected at:
+
+```text
+<ha_config>/custom_components/ir_learning_hub/icon.png
+```
+
 Restart Home Assistant after copying the files.
 
 ## Add the Integration

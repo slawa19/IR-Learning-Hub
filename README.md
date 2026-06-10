@@ -109,6 +109,7 @@ custom_components/ir_learning_hub/
 	const.py                 # constants and service names
 	device_profiles.py       # supported transmitter profile definitions
 	errors.py                # integration error type
+	icon.png                 # local Home Assistant integration icon
 	sensor.py                # diagnostic status sensor platform
 	services.yaml            # Home Assistant service descriptions
 	status.py                # in-memory status model
@@ -208,7 +209,7 @@ The card uses only `ir_learning_hub.*` services. It does not talk to ZHA directl
 
 The integration intentionally keeps ZHA transport logic in `zha_adapter.py`, storage logic in `storage.py`, and UI behavior in the Lovelace card. The UI should call integration services and should not reimplement ZHA reads or Zigbee cluster traversal.
 
-Before publishing this repository publicly, update placeholder metadata in `manifest.json`, especially the documentation and issue tracker URLs.
+Before publishing this repository publicly, verify that `manifest.json` metadata still points to the intended documentation and issue tracker URLs.
 
 ## License
 

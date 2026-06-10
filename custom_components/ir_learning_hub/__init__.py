@@ -50,6 +50,7 @@ from .zha_adapter import ZHAAdapter
 PLATFORMS = [Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_URL = "/ir_learning_hub/ir-learning-hub-card.js"
+FRONTEND_ICON_URL = "/ir_learning_hub/icon.png"
 
 FIELD_CODE = "code"
 FIELD_COMMAND_ID = "command_id"
@@ -167,9 +168,14 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     try:
         from homeassistant.components.http import StaticPathConfig
 
-        card_path = Path(__file__).parent / "www" / "ir-learning-hub-card.js"
+        integration_path = Path(__file__).parent
+        card_path = integration_path / "www" / "ir-learning-hub-card.js"
+        icon_path = integration_path / "icon.png"
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(FRONTEND_URL, str(card_path), True)]
+            [
+                StaticPathConfig(FRONTEND_URL, str(card_path), True),
+                StaticPathConfig(FRONTEND_ICON_URL, str(icon_path), True),
+            ]
         )
     except Exception as err:
         _LOGGER.warning("Could not register IR Learning Hub frontend: %s", err)

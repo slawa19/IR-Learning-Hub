@@ -436,6 +436,7 @@ class IRLearningHubCard extends HTMLElement {
       <style>${STYLES}</style>
       <ha-card>
         <div class="header">
+          <img class="brand-icon" src="/ir_learning_hub/icon.png" alt="" />
           <span class="title">${this._x(this._config.title || "IR Learning Hub")}</span>
           <span class="status-dot ${dotClass}"></span>
           <button class="btn icon-only" data-act="refresh" title="${this._x(this._t("refresh"))}" aria-label="${this._x(this._t("refresh"))}">
@@ -697,6 +698,7 @@ const STYLES = `
     display: flex; align-items: center; gap: 8px;
     padding: 14px 16px; border-bottom: 1px solid var(--divider-color);
   }
+  .brand-icon { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
   .title { font-size: 15px; font-weight: 600; flex: 1; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .dot-idle { background: var(--disabled-color, #9e9e9e); }

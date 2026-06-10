@@ -4,10 +4,10 @@
   "codeowners": [],
   "config_flow": true,
   "dependencies": ["zha"],
-  "documentation": "https://github.com/local/ir_learning_hub",
+  "documentation": "https://github.com/slawa19/IR-Learning-Hub",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/local/ir_learning_hub/issues",
+  "issue_tracker": "https://github.com/slawa19/IR-Learning-Hub/issues",
   "loggers": [
     "custom_components.ir_learning_hub",
     "zhaquirks.tuya.ts1201",
