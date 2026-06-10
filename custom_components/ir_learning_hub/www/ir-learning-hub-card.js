@@ -1,3 +1,5 @@
+const IR_LEARNING_HUB_CARD_VERSION = "0.2.0-2026-06-10";
+
 class IRLearningHubCard extends HTMLElement {
   constructor() {
     super();
@@ -1543,4 +1545,10 @@ window.customCards.push({
   type: "ir-learning-hub-card",
   name: "IR Learning Hub",
   description: "Learn, test, save, and send IR commands through IR Learning Hub.",
+  version: IR_LEARNING_HUB_CARD_VERSION,
 });
+console.info(
+  `%c IR-LEARNING-HUB-CARD %c ${IR_LEARNING_HUB_CARD_VERSION} `,
+  "color:#fff;background:#03a9f4;border-radius:3px 0 0 3px;padding:2px 4px",
+  "color:#03a9f4;background:#222;border-radius:0 3px 3px 0;padding:2px 4px",
+);
