@@ -11,7 +11,10 @@ This roadmap describes the intended direction of the project. It is not a releas
 - Store-backed command registry.
 - Registry CRUD services.
 - Diagnostic status sensor.
-- Initial Lovelace card served by the integration.
+- Lovelace card served by the integration.
+- Command icons and metadata updates without relearning.
+- Device-profile export and import through the Lovelace card.
+- HACS release metadata, repository icon assets, and release-based installation.
 
 ## MVP Hardening
 
@@ -19,12 +22,10 @@ This roadmap describes the intended direction of the project. It is not a releas
 - Add automated tests for storage and service validation.
 - Add compatibility notes for specific Home Assistant versions.
 - Add screenshots or short workflow captures.
-- Replace placeholder repository URLs in `manifest.json` before public release.
 
 ## Post-MVP Candidates
 
 - Multiple transmitter UX.
-- Import and export of the command registry.
 - SmartIR-compatible export for portability.
 - Additional ZHA IR transmitter profiles.
 - Optional Zigbee2MQTT transport adapter.

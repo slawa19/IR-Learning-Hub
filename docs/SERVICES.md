@@ -102,6 +102,39 @@ status: saved
 
 This service is an upsert. If the command already exists, the stored code, name, format, verified flag, and update timestamp are replaced.
 
+If the existing command has an `icon`, relearning or saving a replacement code preserves that icon.
+
+### `ir_learning_hub.update_command`
+
+Updates a saved command's display metadata without relearning or replacing its IR code.
+
+At least one of `name` or `icon` is required.
+
+```yaml
+location_id: cabinet
+ir_device_id: cd_player
+command_id: open_close
+name: Tray Open/Close
+icon: mdi:eject
+```
+
+Use an empty icon string to clear the stored icon:
+
+```yaml
+location_id: cabinet
+ir_device_id: cd_player
+command_id: open_close
+icon: ""
+```
+
+Returns:
+
+```yaml
+status: saved
+```
+
+Icons must be Material Design icon names such as `mdi:play`, `mdi:power`, or `mdi:eject`.
+
 ### `ir_learning_hub.send_command`
 
 Sends a saved command.
@@ -141,6 +174,7 @@ locations:
         commands:
           open_close:
             name: Open/Close
+            icon: mdi:eject
             code: "<base64-code>"
             format: zosung_base64
             verified: true
@@ -197,6 +231,8 @@ ir_device_id: cd_player
 command_id: open_close
 name: Tray Open/Close
 ```
+
+`rename_command` is kept for compatibility and simple scripts. New UI flows use `update_command` when changing command display metadata.
 
 ### `ir_learning_hub.delete_location`
 

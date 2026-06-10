@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.8 - 2026-06-10
+
+### Changed
+
+- Documentation now reflects the current Lovelace card workflow, command icons, profile export/import, and the `update_command` service.
+
 ## 0.1.7 - 2026-06-10
 
 ### Fixed

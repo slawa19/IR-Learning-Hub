@@ -91,20 +91,24 @@ Cluster `0xED00` / `60672` may also appear on the device, but the MVP uses clust
 
 ## Features
 
-- Config flow for a ZHA TS1201 transmitter.
+- Config flow with automatic ZHA transmitter discovery and manual fallback.
 - Native ZHA learn, read, test, and send operations.
 - Async polling for `learn_and_read` without blocking the Home Assistant event loop.
 - Structured command registry stored with Home Assistant `Store`.
 - Stable IDs for locations, IR devices, and commands.
-- Registry management services for create, rename, delete, list, save, and replay operations.
+- Registry management services for create, update, rename, delete, list, save, and replay operations.
+- Optional Material Design icons for saved commands.
+- Device-profile export and import through the Lovelace card for moving commands between remotes.
 - Diagnostic status sensor.
-- Bundled Lovelace card served from the integration.
+- Bundled multilingual Lovelace card served from the integration.
+- English, Russian, and Ukrainian translations for setup, services, sensor states, errors, and the card UI.
 
 ## Repository Layout
 
 ```text
 custom_components/ir_learning_hub/
 	__init__.py              # integration setup and service registration
+	brand/                   # integration brand assets
 	config_flow.py           # transmitter setup flow
 	const.py                 # constants and service names
 	device_profiles.py       # supported transmitter profile definitions
@@ -114,9 +118,12 @@ custom_components/ir_learning_hub/
 	services.yaml            # Home Assistant service descriptions
 	status.py                # in-memory status model
 	storage.py               # Store-backed command registry
+	strings.json             # English source strings for Home Assistant translations
+	translations/            # backend translations
 	zha_adapter.py           # ZHA learn/read/send adapter
 	www/ir-learning-hub-card.js
 
+brand/                      # HACS repository icon assets
 hacs.json
 
 docs/
@@ -140,13 +147,13 @@ Add this repository as a HACS custom repository with category `Integration`:
 https://github.com/slawa19/IR-Learning-Hub
 ```
 
-Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.7` must contain:
+Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.8` must contain:
 
 ```json
-"version": "0.1.7"
+"version": "0.1.8"
 ```
 
-Do not install a raw commit SHA as a HACS version; HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.7` so HACS can show normal version numbers.
+Do not install a raw commit SHA as a HACS version; HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.8` so HACS can show normal version numbers.
 
 Short version:
 
@@ -162,11 +169,19 @@ Short version:
 5. Add the Lovelace card resource if you want to use the bundled UI:
 
 	 ```yaml
-	 url: /ir_learning_hub/ir-learning-hub-card.js?v=7
+	 url: /ir_learning_hub/ir-learning-hub-card.js?v=8
 	 type: module
 	 ```
 
 ## Basic Usage
+
+The Lovelace card is the intended day-to-day UI:
+
+1. Add a location.
+2. Add an IR device inside that location.
+3. Add a command. The card asks for a display name first and generates a stable ID automatically.
+4. Follow the three-step learning wizard: record, test or skip, save.
+5. Send commands from the remote-style command grid.
 
 The most direct learning flow is:
 
@@ -188,6 +203,14 @@ verified: true
 ```
 
 IDs must match `[a-z0-9_]+`. Display names can be human-readable strings.
+
+Use each row or command tile's overflow menu for management actions:
+
+- location menu: rename, delete;
+- device menu: rename, export profile, import profile, delete;
+- command menu: relearn, rename, choose icon, delete.
+
+Device-profile export/import uses JSON containing the selected device's commands. Import writes commands into the device selected from the menu; it does not require relearning those commands. Command icons are stored separately from IR codes and are preserved when a command is relearned.
 
 For a complete service reference, see [docs/SERVICES.md](docs/SERVICES.md).
 
@@ -211,6 +234,8 @@ poll_interval: 2
 
 The card uses only `ir_learning_hub.*` services. It does not talk to ZHA directly.
 
+The header refresh button reloads the command registry from Home Assistant storage. Use it after making changes from another browser tab, Developer Tools, automations, or scripts.
+
 ## Documentation
 
 - [Installation](docs/INSTALLATION.md)
@@ -227,7 +252,7 @@ The card uses only `ir_learning_hub.*` services. It does not talk to ZHA directl
 
 The integration intentionally keeps ZHA transport logic in `zha_adapter.py`, storage logic in `storage.py`, and UI behavior in the Lovelace card. The UI should call integration services and should not reimplement ZHA reads or Zigbee cluster traversal.
 
-Before publishing this repository publicly, verify that `manifest.json` metadata still points to the intended documentation and issue tracker URLs.
+When publishing a release, keep `manifest.json`, the Lovelace card version, README examples, installation docs, changelog, the git tag, and the GitHub Release in sync. HACS uses the release/tag and manifest version to decide what version users see.
 
 ## License
 

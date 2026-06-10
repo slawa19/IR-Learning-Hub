@@ -70,10 +70,29 @@ Try:
 Check:
 
 - Home Assistant was restarted after installing the integration;
-- the resource URL is `/ir_learning_hub/ir-learning-hub-card.js?v=1`;
+- the resource URL is `/ir_learning_hub/ir-learning-hub-card.js?v=8`;
 - the resource type is `module`;
 - the browser cache was refreshed;
 - the file exists at `custom_components/ir_learning_hub/www/ir-learning-hub-card.js`.
+
+The card logs its loaded version in the browser console:
+
+```text
+IR-LEARNING-HUB-CARD 0.1.8
+```
+
+If the console shows an older version, update the Lovelace resource query string and hard-refresh the browser.
+
+## Export profile copy does not put JSON on the clipboard
+
+The card first uses the browser Clipboard API and then falls back to copying from the export textarea. If neither path works, use the download button instead.
+
+Check:
+
+- the browser allows clipboard access for the Home Assistant site;
+- the export textarea contains JSON;
+- the card version in the browser console is current;
+- another browser extension is not blocking clipboard writes.
 
 ## IDs are rejected
 

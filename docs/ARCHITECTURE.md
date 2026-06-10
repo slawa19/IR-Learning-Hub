@@ -54,6 +54,8 @@ The current store contains transmitter metadata and user command registry data:
 
 Locations contain IR devices, and IR devices contain commands. Saved command codes are treated as opaque `zosung_base64` payloads and are not decoded or transformed by the integration.
 
+Commands may also contain optional display metadata such as `icon`. This metadata is independent from the learned IR code and is preserved when a command is relearned.
+
 ### `__init__.py`
 
 Initializes runtime state, registers services, forwards the sensor platform, serves the bundled card, and coordinates status updates.
@@ -122,6 +124,16 @@ The Lovelace card must not:
 - implement its own storage model.
 
 The card should use integration services and response data only.
+
+The card owns user-facing workflows that do not require ZHA access:
+
+- location, device, and command menus;
+- inline rename actions;
+- command icon selection;
+- device-profile export and import;
+- registry refresh after external changes.
+
+Profile export/import is a UI-level portability helper. The exported JSON contains one IR device's commands and is imported by calling existing integration services, primarily `save_command` and `update_command`.
 
 ## Deferred Architecture
 

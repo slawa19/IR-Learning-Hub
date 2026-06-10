@@ -39,6 +39,8 @@ The local integration icon is expected at:
 <ha_config>/custom_components/ir_learning_hub/icon.png
 ```
 
+HACS repository listing assets are kept in the repository root under `brand/`.
+
 Restart Home Assistant after copying the files.
 
 ## HACS Installation
@@ -51,20 +53,31 @@ https://github.com/slawa19/IR-Learning-Hub
 
 Use category `Integration`.
 
-HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release tag `v0.1.7` must contain:
+HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release tag `v0.1.8` must contain:
 
 ```json
-"version": "0.1.7"
+"version": "0.1.8"
 ```
 
 If HACS shows an error such as `The version fb1af13 for this integration can not be used with HACS`, create or select a release/tag version instead of installing that commit hash.
 
-For a new release, update `manifest.json`, commit the change, then create and push a matching semantic tag:
+For a new release, keep these items in sync:
+
+- `custom_components/ir_learning_hub/manifest.json`;
+- `custom_components/ir_learning_hub/www/ir-learning-hub-card.js`;
+- README and installation examples;
+- `CHANGELOG.md`;
+- git tag, for example `v0.1.8`;
+- GitHub Release for that tag.
+
+Create and push a matching semantic tag:
 
 ```text
-git tag v0.1.7
-git push origin v0.1.7
+git tag v0.1.8
+git push origin v0.1.8
 ```
+
+Then publish a GitHub Release from the same tag. HACS uses release metadata and tags to show normal versions, release notes, and update notifications.
 
 ## Add the Integration
 
@@ -97,7 +110,7 @@ The integration serves the bundled card at:
 Add it as a Lovelace resource:
 
 ```yaml
-url: /ir_learning_hub/ir-learning-hub-card.js?v=7
+url: /ir_learning_hub/ir-learning-hub-card.js?v=8
 type: module
 ```
 
@@ -130,12 +143,21 @@ code: "<base64-code>"
 
 Then call `ir_learning_hub.test_code` with the returned code. If the controlled device reacts, save the command with `ir_learning_hub.save_command`.
 
+You can also validate through the Lovelace card:
+
+1. Create a location and device.
+2. Add a command.
+3. Complete the record, test, and save wizard.
+4. Use the command tile to replay the saved code.
+
 ## Updating
 
-1. Replace the files under `custom_components/ir_learning_hub`.
+1. Update through HACS, or replace the files under `custom_components/ir_learning_hub` for a manual install.
 2. Restart Home Assistant.
 3. Refresh the browser cache if the Lovelace card changed.
-4. Bump the card resource query string if needed, for example `?v=7`.
+4. Bump the card resource query string if needed, for example `?v=8`.
+
+If HACS still shows an older version, reload HACS data, confirm that the GitHub Release exists for the latest tag, and verify that `manifest.json` inside the downloaded release contains the same version.
 
 ## Uninstalling
 
