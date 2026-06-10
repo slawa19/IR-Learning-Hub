@@ -18,6 +18,7 @@ class IRLearningHubCard extends HTMLElement {
     this._busy = false;
     this._msg = "";
     this._err = "";
+    this._lastStatus = undefined; // last status-entity state we rendered
   }
 
   setConfig(config) { this._config = config || {}; this._render(); }
@@ -25,8 +26,26 @@ class IRLearningHubCard extends HTMLElement {
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
-    if (first) this._loadRegistry();
-    else this._render();
+
+    // HA reassigns `hass` on every global state change (several times per
+    // second). Re-rendering the whole shadow DOM each time tears down the
+    // element under the cursor, which causes hover flicker, dropped clicks,
+    // and lost input focus. Only re-render when something we actually display
+    // (the status entity) changed; every other update is user-driven and
+    // already calls _render() explicitly.
+    const statusEntity =
+      this._config.status_entity || "sensor.ir_learning_hub_status";
+    const status = hass?.states?.[statusEntity]?.state;
+
+    if (first) {
+      this._lastStatus = status;
+      this._loadRegistry();
+      return;
+    }
+    if (status !== this._lastStatus) {
+      this._lastStatus = status;
+      this._render();
+    }
   }
 
   getCardSize() { return 8; }
@@ -306,19 +325,18 @@ class IRLearningHubCard extends HTMLElement {
     const f = this._addForm;
     return `
       <div class="inline-form">
-        <label class="field">
-          <span>${this._x(this._t("name"))}</span>
-          <input class="fi" data-ff="name" value="${this._x(f.name)}" />
-        </label>
-        <label class="field">
-          <span>${this._x(this._t("id"))}</span>
-          <input class="fi" data-ff="id" value="${this._x(f.id)}" aria-describedby="add-id-helper" />
-        </label>
-        <div class="field-helper" id="add-id-helper">${this._x(this._t("idHelper"))}</div>
+        <div class="cform">
+          <input class="fi" data-ff="name" value="${this._x(f.name)}" placeholder="${this._x(this._t("name"))}" />
+          <div class="field-row">
+            <input class="fi" data-ff="id" value="${this._x(f.id)}" placeholder="${this._x(this._t("idPlaceholder"))}" aria-describedby="add-id-helper" />
+            <span class="field-hint" id="add-id-helper" title="${this._x(this._t("idHelper"))}" aria-label="${this._x(this._t("idHelper"))}" role="img">
+              <ha-icon icon="mdi:help-circle-outline"></ha-icon>
+            </span>
+          </div>
+        </div>
         <div class="form-row">
-          <button class="btn p" data-act="submitAdd" ${this._busy ? "disabled" : ""}>
+          <button class="btn p icon-only" data-act="submitAdd" ${this._busy ? "disabled" : ""} title="${this._x(this._t("add"))}" aria-label="${this._x(this._t("add"))}">
             <ha-icon icon="mdi:check"></ha-icon>
-            <span>${this._x(this._t("add"))}</span>
           </button>
           <button class="btn icon-only" data-act="cancelAdd" title="${this._x(this._t("cancel"))}" aria-label="${this._x(this._t("cancel"))}">
             <ha-icon icon="mdi:close"></ha-icon>
@@ -358,19 +376,18 @@ class IRLearningHubCard extends HTMLElement {
     const footer = this._newCmd !== null
       ? `<div class="new-cmd-form">
           <div class="new-cmd-title">${this._x(this._t("newCommand"))}</div>
-          <label class="field">
-            <span>${this._x(this._t("name"))}</span>
-            <input class="fi" data-nc="name" value="${this._x(this._newCmd.name)}" />
-          </label>
-          <label class="field">
-            <span>${this._x(this._t("id"))}</span>
-            <input class="fi" data-nc="id" value="${this._x(this._newCmd.id)}" aria-describedby="new-command-id-helper" />
-          </label>
-          <div class="field-helper" id="new-command-id-helper">${this._x(this._t("idHelper"))}</div>
+          <div class="cform">
+            <input class="fi" data-nc="name" value="${this._x(this._newCmd.name)}" placeholder="${this._x(this._t("name"))}" />
+            <div class="field-row">
+              <input class="fi" data-nc="id" value="${this._x(this._newCmd.id)}" placeholder="${this._x(this._t("idPlaceholder"))}" aria-describedby="new-command-id-helper" />
+              <span class="field-hint" id="new-command-id-helper" title="${this._x(this._t("idHelper"))}" aria-label="${this._x(this._t("idHelper"))}" role="img">
+                <ha-icon icon="mdi:help-circle-outline"></ha-icon>
+              </span>
+            </div>
+          </div>
           <div class="form-row">
-            <button class="btn p" data-act="startLearnNew" ${this._busy ? "disabled" : ""}>
+            <button class="btn p icon-only" data-act="startLearnNew" ${this._busy ? "disabled" : ""} title="${this._x(this._t("learn"))}" aria-label="${this._x(this._t("learn"))}">
               <ha-icon icon="mdi:record-circle-outline"></ha-icon>
-              <span>${this._x(this._t("learn"))}</span>
             </button>
             <button class="btn icon-only" data-act="cancelNewCmd" title="${this._x(this._t("cancel"))}" aria-label="${this._x(this._t("cancel"))}">
               <ha-icon icon="mdi:close"></ha-icon>
@@ -437,10 +454,9 @@ class IRLearningHubCard extends HTMLElement {
           <div class="w-steps"><span class="w-step done"></span><span class="w-step done"></span><span class="w-step active"></span></div>
           <div class="w-label">${this._x(this._t("stepSave"))}</div>
           <div class="w-title">${this._x(w.tested ? this._t("tested") : this._t("notTested"))}</div>
-          <label class="field wizard-field">
-            <span>${this._x(this._t("commandName"))}</span>
-            <input class="w-name-input" data-wname value="${this._x(w.cmdName)}" />
-          </label>
+          <div class="wizard-field">
+            <input class="w-name-input" data-wname value="${this._x(w.cmdName)}" placeholder="${this._x(this._t("commandName"))}" />
+          </div>
           <div class="w-actions">
             <button class="btn p" data-act="saveCode" ${this._busy ? "disabled" : ""}>
               <ha-icon icon="mdi:content-save"></ha-icon>
@@ -607,6 +623,7 @@ const TRANSLATIONS = {
     confirmUnverified: "Send unverified command \"{name}\"?",
     id: "ID",
     idHelper: "Lowercase letters, numbers, and underscores",
+    idPlaceholder: "tv_power",
     idRequired: "ID is required",
     learn: "Learn",
     name: "Name",
@@ -649,6 +666,7 @@ const TRANSLATIONS = {
     confirmUnverified: "Отправить непроверенную команду \"{name}\"?",
     id: "ID",
     idHelper: "Строчные латинские буквы, цифры и подчёркивания",
+    idPlaceholder: "tv_power",
     idRequired: "ID обязателен",
     learn: "Учить",
     name: "Название",
@@ -691,6 +709,7 @@ const TRANSLATIONS = {
     confirmUnverified: "Надіслати неперевірену команду \"{name}\"?",
     id: "ID",
     idHelper: "Малі латинські літери, цифри та підкреслення",
+    idPlaceholder: "tv_power",
     idRequired: "ID обов'язковий",
     learn: "Навчити",
     name: "Назва",
@@ -782,17 +801,6 @@ const STYLES = `
     margin: 6px 0; padding: 8px;
     background: var(--secondary-background-color); border-radius: 6px;
   }
-  .field {
-    display: block;
-    margin-bottom: 8px;
-  }
-  .field span {
-    display: block;
-    margin-bottom: 4px;
-    color: var(--secondary-text-color);
-    font-size: 12px;
-    font-weight: 500;
-  }
   .fi {
     display: block;
     width: 100%;
@@ -806,21 +814,26 @@ const STYLES = `
     font: inherit;
     font-size: 13px;
   }
+  .fi::placeholder { color: var(--secondary-text-color); opacity: 0.7; }
   .fi:focus,
   .w-name-input:focus {
     outline: 0;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 1px var(--primary-color);
   }
-  .field-helper {
-    margin: -3px 0 8px;
-    color: var(--secondary-text-color);
-    font-size: 11px;
-    line-height: 1.35;
+
+  /* Compact fields: placeholder hints + trailing "?" tooltip */
+  .cform { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .field-row { display: flex; align-items: center; gap: 6px; }
+  .field-row .fi { flex: 1; min-width: 0; }
+  .field-hint {
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--secondary-text-color); cursor: help; flex-shrink: 0;
   }
-  .form-row { display: flex; gap: 8px; align-items: center; }
-  .inline-form .form-row .btn.p,
-  .new-cmd-form .form-row .btn.p { flex: 1; min-width: 0; }
+  .field-hint ha-icon { --mdc-icon-size: 18px; }
+  .field-hint:hover { color: var(--primary-color); }
+
+  .form-row { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
 
   /* Main */
   .main {
@@ -927,7 +940,6 @@ const STYLES = `
     text-align: center;
   }
   .wizard-field { width: 100%; max-width: 260px; margin-bottom: 16px; }
-  .wizard-field span { text-align: left; }
 
   /* Buttons */
   .btn {
