@@ -292,8 +292,15 @@ class IRLearningHubCard extends HTMLElement {
     const f = this._addForm;
     return `
       <div class="inline-form">
-        <ha-textfield class="fi" label="${this._x(this._t("name"))}" data-ff="name" value="${this._x(f.name)}"></ha-textfield>
-        <ha-textfield class="fi" label="${this._x(this._t("id"))}" helper="${this._x(this._t("idHelper"))}" data-ff="id" value="${this._x(f.id)}"></ha-textfield>
+        <label class="field">
+          <span>${this._x(this._t("name"))}</span>
+          <input class="fi" data-ff="name" value="${this._x(f.name)}" />
+        </label>
+        <label class="field">
+          <span>${this._x(this._t("id"))}</span>
+          <input class="fi" data-ff="id" value="${this._x(f.id)}" aria-describedby="add-id-helper" />
+        </label>
+        <div class="field-helper" id="add-id-helper">${this._x(this._t("idHelper"))}</div>
         <div class="form-row">
           <button class="btn p" data-act="submitAdd" ${this._busy ? "disabled" : ""}>
             <ha-icon icon="mdi:check"></ha-icon>
@@ -337,8 +344,15 @@ class IRLearningHubCard extends HTMLElement {
     const footer = this._newCmd !== null
       ? `<div class="new-cmd-form">
           <div class="new-cmd-title">${this._x(this._t("newCommand"))}</div>
-          <ha-textfield class="fi" label="${this._x(this._t("name"))}" data-nc="name" value="${this._x(this._newCmd.name)}"></ha-textfield>
-          <ha-textfield class="fi" label="${this._x(this._t("id"))}" helper="${this._x(this._t("idHelper"))}" data-nc="id" value="${this._x(this._newCmd.id)}"></ha-textfield>
+          <label class="field">
+            <span>${this._x(this._t("name"))}</span>
+            <input class="fi" data-nc="name" value="${this._x(this._newCmd.name)}" />
+          </label>
+          <label class="field">
+            <span>${this._x(this._t("id"))}</span>
+            <input class="fi" data-nc="id" value="${this._x(this._newCmd.id)}" aria-describedby="new-command-id-helper" />
+          </label>
+          <div class="field-helper" id="new-command-id-helper">${this._x(this._t("idHelper"))}</div>
           <div class="form-row">
             <button class="btn p" data-act="startLearnNew" ${this._busy ? "disabled" : ""}>
               <ha-icon icon="mdi:record-circle-outline"></ha-icon>
@@ -409,7 +423,10 @@ class IRLearningHubCard extends HTMLElement {
           <div class="w-steps"><span class="w-step done"></span><span class="w-step done"></span><span class="w-step active"></span></div>
           <div class="w-label">${this._x(this._t("stepSave"))}</div>
           <div class="w-title">${this._x(w.tested ? this._t("tested") : this._t("notTested"))}</div>
-          <ha-textfield class="w-name-input" label="${this._x(this._t("commandName"))}" data-wname value="${this._x(w.cmdName)}"></ha-textfield>
+          <label class="field wizard-field">
+            <span>${this._x(this._t("commandName"))}</span>
+            <input class="w-name-input" data-wname value="${this._x(w.cmdName)}" />
+          </label>
           <div class="w-actions">
             <button class="btn p" data-act="saveCode" ${this._busy ? "disabled" : ""}>
               <ha-icon icon="mdi:content-save"></ha-icon>
@@ -750,12 +767,41 @@ const STYLES = `
     margin: 6px 0; padding: 8px;
     background: var(--secondary-background-color); border-radius: 6px;
   }
+  .field {
+    display: block;
+    margin-bottom: 8px;
+  }
+  .field span {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--secondary-text-color);
+    font-size: 12px;
+    font-weight: 500;
+  }
   .fi {
-    display: block; width: 100%; margin-bottom: 8px;
-    --mdc-typography-subtitle1-font-size: 13px;
-    --mdc-text-field-fill-color: var(--card-background-color);
-    --mdc-text-field-idle-line-color: var(--divider-color);
-    --mdc-text-field-hover-line-color: var(--primary-color);
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 1px solid var(--divider-color);
+    border-radius: 6px;
+    background: var(--card-background-color);
+    color: var(--primary-text-color);
+    font: inherit;
+    font-size: 13px;
+  }
+  .fi:focus,
+  .w-name-input:focus {
+    outline: 0;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px var(--primary-color);
+  }
+  .field-helper {
+    margin: -3px 0 8px;
+    color: var(--secondary-text-color);
+    font-size: 11px;
+    line-height: 1.35;
   }
   .form-row { display: flex; gap: 8px; align-items: center; }
   .inline-form .form-row .btn.p,
@@ -853,9 +899,20 @@ const STYLES = `
   .w-countdown { font-size: 28px; font-weight: 300; color: var(--secondary-text-color); margin-bottom: 18px; }
   .w-actions { display: flex; gap: 8px; justify-content: center; margin-bottom: 6px; }
   .w-name-input {
-    width: 100%; max-width: 260px; margin-bottom: 16px;
-    --mdc-text-field-fill-color: var(--card-background-color);
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--divider-color);
+    border-radius: 6px;
+    background: var(--card-background-color);
+    color: var(--primary-text-color);
+    font: inherit;
+    font-size: 14px;
+    text-align: center;
   }
+  .wizard-field { width: 100%; max-width: 260px; margin-bottom: 16px; }
+  .wizard-field span { text-align: left; }
 
   /* Buttons */
   .btn {
