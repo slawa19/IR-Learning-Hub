@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.5 - 2026-06-10
+
+### Changed
+
+- Updated README and installation examples to match the latest release version.
+
 ## 0.1.4 - 2026-06-10
 
 ### Fixed
