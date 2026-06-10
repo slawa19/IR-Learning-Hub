@@ -36,6 +36,7 @@ from .const import (
     SERVICE_SAVE_COMMAND,
     SERVICE_SEND_COMMAND,
     SERVICE_TEST_CODE,
+    SERVICE_UPDATE_COMMAND,
     STATUS_CODE_RECEIVED,
     STATUS_ERROR,
     STATUS_IDLE,
@@ -55,6 +56,7 @@ FRONTEND_ICON_URL = "/ir_learning_hub/icon.png"
 FIELD_CODE = "code"
 FIELD_COMMAND_ID = "command_id"
 FIELD_CONFIRM = "confirm"
+FIELD_ICON = "icon"
 FIELD_IR_DEVICE_ID = "ir_device_id"
 FIELD_LOCATION_ID = "location_id"
 FIELD_NAME = "name"
@@ -79,6 +81,21 @@ def _non_empty_string(value: str) -> str:
     value = cv.string(value).strip()
     if not value:
         raise vol.Invalid("Value must not be empty")
+    return value
+
+
+def _icon_schema(value: str) -> str:
+    """Validate a Material Design icon name or an empty string to clear it."""
+    value = cv.string(value).strip()
+    if value and not value.startswith("mdi:"):
+        raise vol.Invalid("Icon must start with mdi:")
+    return value
+
+
+def _command_update_schema(value: dict[str, Any]) -> dict[str, Any]:
+    """Require update_command to change at least one user-facing field."""
+    if FIELD_NAME not in value and FIELD_ICON not in value:
+        raise vol.Invalid("Either name or icon is required")
     return value
 
 
@@ -158,6 +175,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_ADD_LOCATION,
         SERVICE_ADD_DEVICE,
         SERVICE_ADD_COMMAND,
+        SERVICE_UPDATE_COMMAND,
         SERVICE_RENAME_LOCATION,
         SERVICE_RENAME_DEVICE,
         SERVICE_RENAME_COMMAND,
@@ -178,7 +196,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 
         integration_path = Path(__file__).parent
         card_path = integration_path / "www" / "ir-learning-hub-card.js"
-        icon_path = integration_path / "icon.png"
+        icon_path = integration_path / "brand" / "icon.png"
         await hass.http.async_register_static_paths(
             [
                 StaticPathConfig(FRONTEND_URL, str(card_path), True),
@@ -456,6 +474,19 @@ def _register_services(hass: HomeAssistant) -> None:
 
         return await run_service(SERVICE_ADD_COMMAND, action, data=call.data)
 
+    async def update_command(call: ServiceCall) -> dict[str, str]:
+        async def action() -> dict[str, str]:
+            await store.update_command(
+                call.data[FIELD_LOCATION_ID],
+                call.data[FIELD_IR_DEVICE_ID],
+                call.data[FIELD_COMMAND_ID],
+                name=call.data.get(FIELD_NAME),
+                icon=call.data.get(FIELD_ICON),
+            )
+            return {"status": "saved"}
+
+        return await run_service(SERVICE_UPDATE_COMMAND, action, data=call.data)
+
     async def rename_location(call: ServiceCall) -> dict[str, str]:
         async def action() -> dict[str, str]:
             await store.rename_location(
@@ -616,6 +647,24 @@ def _register_services(hass: HomeAssistant) -> None:
         SERVICE_ADD_COMMAND,
         add_command,
         schema=vol.Schema(COMMAND_SCHEMA),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_COMMAND,
+        update_command,
+        schema=vol.All(
+            vol.Schema(
+                {
+                    vol.Required(FIELD_LOCATION_ID): _id_schema,
+                    vol.Required(FIELD_IR_DEVICE_ID): _id_schema,
+                    vol.Required(FIELD_COMMAND_ID): _id_schema,
+                    vol.Optional(FIELD_NAME): _non_empty_string,
+                    vol.Optional(FIELD_ICON): _icon_schema,
+                }
+            ),
+            _command_update_schema,
+        ),
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(

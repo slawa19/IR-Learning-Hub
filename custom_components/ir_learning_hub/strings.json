@@ -245,6 +245,17 @@
         }
       }
     },
+    "update_command": {
+      "name": "Update command",
+      "description": "Update a command's name and/or icon without re-learning its code.",
+      "fields": {
+        "location_id": { "name": "Location ID", "description": "Identifier of the location the command belongs to." },
+        "ir_device_id": { "name": "IR device ID", "description": "Identifier of the IR device the command belongs to." },
+        "command_id": { "name": "Command ID", "description": "Identifier of the command to update." },
+        "name": { "name": "Name", "description": "New command name." },
+        "icon": { "name": "Icon", "description": "Material Design icon, e.g. mdi:play. Leave empty to clear." }
+      }
+    },
     "rename_location": {
       "name": "Rename location",
       "description": "Change the display name of a location.",

@@ -15,6 +15,10 @@ class IRLearningHubCard extends HTMLElement {
     this._countdownTimer = null;
     this._addForm = null;     // { type:"location"|"device", id, name }
     this._newCmd = null;      // { id, name }
+    this._menu = null;        // { kind:"loc"|"dev"|"cmd", locId, devId, cmdId }
+    this._rename = null;      // { kind, locId, devId, cmdId, name }
+    this._iconEdit = null;    // { locId, devId, cmdId, icon }
+    this._panel = null;       // { mode:"export"|"import", text }
     this._busy = false;
     this._msg = "";
     this._err = "";
@@ -83,6 +87,10 @@ class IRLearningHubCard extends HTMLElement {
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/_+/g, "_")
       .replace(/^_+|_+$/g, "");
+  }
+
+  _isValidId(v) {
+    return /^[a-z0-9_]+$/.test(String(v || ""));
   }
 
   _t(key, vars = {}) {
@@ -281,18 +289,36 @@ class IRLearningHubCard extends HTMLElement {
     for (const [locId, loc] of Object.entries(locs)) {
       const exp = this._expanded[locId] !== false;
       const devs = loc.devices || {};
-      tree += `
-        <div class="loc-row" data-toggle="${this._x(locId)}">
-          <span class="arrow">${exp ? "▾" : "▸"}</span>
-          <span class="loc-name">${this._x(loc.name || locId)}</span>
-        </div>`;
+
+      if (this._rename?.kind === "loc" && this._rename.locId === locId) {
+        tree += `<div class="loc-row editing">${this._renameInput()}</div>`;
+      } else {
+        const menuOpen = this._menuOpen("loc", locId);
+        tree += `
+          <div class="loc-row${menuOpen ? " menu-open" : ""}">
+            <span class="arrow" data-toggle="${this._x(locId)}">${exp ? "▾" : "▸"}</span>
+            <span class="loc-name" data-toggle="${this._x(locId)}">${this._x(loc.name || locId)}</span>
+            <button class="kebab" data-menu="loc" data-loc="${this._x(locId)}" title="${this._x(this._t("actions"))}" aria-label="${this._x(this._t("actions"))}">
+              <ha-icon icon="mdi:dots-vertical"></ha-icon>
+            </button>
+          </div>`;
+      }
+
       if (exp) {
         tree += `<div class="devs">`;
         for (const [dId, d] of Object.entries(devs)) {
+          if (this._rename?.kind === "dev" && this._rename.locId === locId && this._rename.devId === dId) {
+            tree += `<div class="dev editing">${this._renameInput()}</div>`;
+            continue;
+          }
           const sel = dId === this._selDev && locId === this._selLoc;
+          const menuOpen = this._menuOpen("dev", locId, dId);
           tree += `
-            <div class="dev${sel ? " sel" : ""}" data-sel="${this._x(locId)}||${this._x(dId)}">
-              ${this._x(d.name || dId)}
+            <div class="dev${sel ? " sel" : ""}${menuOpen ? " menu-open" : ""}">
+              <span class="dev-name" data-sel="${this._x(locId)}||${this._x(dId)}">${this._x(d.name || dId)}</span>
+              <button class="kebab" data-menu="dev" data-loc="${this._x(locId)}" data-dev="${this._x(dId)}" title="${this._x(this._t("actions"))}" aria-label="${this._x(this._t("actions"))}">
+                <ha-icon icon="mdi:dots-vertical"></ha-icon>
+              </button>
             </div>`;
         }
         if (this._addForm?.type === "device" && this._selLoc === locId) {
@@ -319,6 +345,115 @@ class IRLearningHubCard extends HTMLElement {
     }
 
     return tree;
+  }
+
+  // ── Menus, rename, icon helpers ───────────────────────────────────────────
+
+  _menuOpen(kind, locId, devId, cmdId) {
+    const m = this._menu;
+    return !!m && m.kind === kind && m.locId === locId
+      && (devId === undefined || m.devId === devId)
+      && (cmdId === undefined || m.cmdId === cmdId);
+  }
+
+  _menuItems(m) {
+    if (m.kind === "loc")
+      return [
+        ["rename", "mdi:pencil", this._t("rename")],
+        ["delete", "mdi:delete", this._t("delete"), true],
+      ];
+    if (m.kind === "dev")
+      return [
+        ["rename", "mdi:pencil", this._t("rename")],
+        ["export", "mdi:content-copy", this._t("exportProfile")],
+        ["import", "mdi:tray-arrow-down", this._t("importProfile")],
+        ["delete", "mdi:delete", this._t("delete"), true],
+      ];
+    return [
+      ["relearn", "mdi:backup-restore", this._t("relearn")],
+      ["rename", "mdi:pencil", this._t("rename")],
+      ["icon", "mdi:shape-outline", this._t("iconLabel")],
+      ["delete", "mdi:delete", this._t("delete"), true],
+    ];
+  }
+
+  _dropdown(items, attrs = "") {
+    return `<div class="menu" ${attrs}>${items.map(([act, icon, label, danger]) => `
+      <button class="menu-item${danger ? " danger" : ""}" data-mact="${act}">
+        <ha-icon icon="${icon}"></ha-icon><span>${this._x(label)}</span>
+      </button>`).join("")}</div>`;
+  }
+
+  _renderMenuOverlay() {
+    if (!this._menu) return "";
+    const left = Number.isFinite(this._menu.left) ? this._menu.left : 8;
+    const top = Number.isFinite(this._menu.top) ? this._menu.top : 40;
+    return this._dropdown(
+      this._menuItems(this._menu),
+      `style="left:${left}px;top:${top}px"`
+    );
+  }
+
+  _renameInput() {
+    return `
+      <input class="fi rename-fi" data-rename-input value="${this._x(this._rename.name)}" />
+      <button class="kebab-btn ok" data-act="renameSave" title="${this._x(this._t("save"))}" aria-label="${this._x(this._t("save"))}">
+        <ha-icon icon="mdi:check"></ha-icon>
+      </button>
+      <button class="kebab-btn" data-act="renameCancel" title="${this._x(this._t("cancel"))}" aria-label="${this._x(this._t("cancel"))}">
+        <ha-icon icon="mdi:close"></ha-icon>
+      </button>`;
+  }
+
+  _closeEditors() {
+    this._menu = null;
+    this._rename = null;
+    this._iconEdit = null;
+    this._panel = null;
+  }
+
+  _nameOf(m) {
+    const loc = (this._registry.locations || {})[m.locId];
+    if (m.kind === "loc") return loc?.name || m.locId;
+    const dev = (loc?.devices || {})[m.devId];
+    if (m.kind === "dev") return dev?.name || m.devId;
+    return (dev?.commands || {})[m.cmdId]?.name || m.cmdId;
+  }
+
+  _suggestIcons(name) {
+    const n = (name || "").toLowerCase();
+    const rules = [
+      [/(вкл|вык|пита|on\s*\/?\s*off|power|живл)/, "mdi:power"],
+      [/(play|воспро|відтвор|пуск|играть)/, "mdi:play"],
+      [/(pause|пауза)/, "mdi:pause"],
+      [/(stop|стоп|зупин)/, "mdi:stop"],
+      [/(forward|next|вперёд|вперед|вперёд|перемот.*впер|fwd|>>)/, "mdi:skip-next"],
+      [/(backward|back|rewind|назад|перемот.*наз|<<)/, "mdi:skip-previous"],
+      [/(eject|open|close|откр|закр|відкр|tray|лоток)/, "mdi:eject"],
+      [/(vol.*\+|громч|гучн|volume up|vol up)/, "mdi:volume-plus"],
+      [/(vol.*-|тиш|тих|volume down|vol down)/, "mdi:volume-minus"],
+      [/(mute|без звук|тиша)/, "mdi:volume-mute"],
+      [/(menu|меню)/, "mdi:menu"],
+      [/(home|домой|додом)/, "mdi:home"],
+      [/(ok|enter|ввод|select|вибр)/, "mdi:circle-slice-8"],
+      [/(up|вверх|вгору)/, "mdi:chevron-up"],
+      [/(down|вниз)/, "mdi:chevron-down"],
+      [/(left|влев|ліво)/, "mdi:chevron-left"],
+      [/(right|вправ|право)/, "mdi:chevron-right"],
+      [/(channel|канал|ch)/, "mdi:television"],
+      [/(record|запис|rec)/, "mdi:record-circle"],
+      [/(light|свет|світл|ламп)/, "mdi:lightbulb"],
+      [/(temp|темпер|°|град)/, "mdi:thermometer"],
+      [/(fan|вентил|обдув)/, "mdi:fan"],
+      [/(mode|режим)/, "mdi:tune"],
+      [/(timer|таймер)/, "mdi:timer-outline"],
+    ];
+    const out = [];
+    for (const [re, icon] of rules)
+      if (re.test(n) && !out.includes(icon)) out.push(icon);
+    for (const g of ["mdi:remote", "mdi:gesture-tap-button", "mdi:power", "mdi:play", "mdi:cog"])
+      if (!out.includes(g)) out.push(g);
+    return out.slice(0, 6);
   }
 
   _renderInlineForm() {
@@ -355,19 +490,30 @@ class IRLearningHubCard extends HTMLElement {
     }
 
     const dev = this._dev();
+    const head = `<div class="remote-head">${this._x(dev?.name || this._selDev)}</div>`;
+
+    if (this._iconEdit) return head + this._renderIconPanel();
+    if (this._panel) return head + this._renderProfilePanel();
+
     const cmds = this._cmds();
     const cmdEntries = Object.entries(cmds);
 
     const grid = cmdEntries.length
       ? cmdEntries.map(([id, cmd]) => {
+          if (this._rename?.kind === "cmd" && this._rename.cmdId === id)
+            return `<div class="cmd-card editing">${this._renameInput()}</div>`;
           const unv = cmd.verified === false;
+          const menuOpen = this._menuOpen("cmd", this._selLoc, this._selDev, id);
+          const icon = cmd.icon
+            ? `<ha-icon class="cmd-icon" icon="${this._x(cmd.icon)}"></ha-icon>`
+            : "";
           return `
-            <div class="cmd-card${unv ? " unv" : ""}">
+            <div class="cmd-card${unv ? " unv" : ""}${menuOpen ? " menu-open" : ""}">
               <button class="cmd-send" data-send="${this._x(id)}" title="${this._x(this._t("send"))}">
-                ${this._x(cmd.name || id)}
+                ${icon}<span class="cmd-name">${this._x(cmd.name || id)}</span>
               </button>
-              <button class="cmd-relearn" data-relearn="${this._x(id)}" title="${this._x(this._t("relearn"))}" aria-label="${this._x(this._t("relearn"))}">
-                <ha-icon icon="mdi:backup-restore"></ha-icon>
+              <button class="kebab on-tile" data-menu="cmd" data-loc="${this._x(this._selLoc)}" data-dev="${this._x(this._selDev)}" data-cmd="${this._x(id)}" title="${this._x(this._t("actions"))}" aria-label="${this._x(this._t("actions"))}">
+                <ha-icon icon="mdi:dots-vertical"></ha-icon>
               </button>
             </div>`;
         }).join("")
@@ -400,9 +546,236 @@ class IRLearningHubCard extends HTMLElement {
         </button>`;
 
     return `
-      <div class="remote-head">${this._x(dev?.name || this._selDev)}</div>
+      ${head}
       <div class="cmd-grid">${grid}</div>
       <div class="remote-foot">${footer}</div>`;
+  }
+
+  _renderIconPanel() {
+    const e = this._iconEdit;
+    const cmd = (this._cmds() || {})[e.cmdId] || {};
+    const chips = this._suggestIcons(cmd.name || e.cmdId).map(ic => `
+      <button class="chip${e.icon === ic ? " sel" : ""}" data-act="pickIcon" data-icon="${this._x(ic)}" title="${this._x(ic)}">
+        <ha-icon icon="${this._x(ic)}"></ha-icon>
+      </button>`).join("");
+    return `
+      <div class="panel">
+        <div class="panel-title">${this._x(this._t("chooseIcon"))} · ${this._x(cmd.name || e.cmdId)}</div>
+        <div class="chips">${chips}</div>
+        <div class="field-row">
+          <span class="icon-preview" data-icon-preview><ha-icon icon="${this._x(e.icon || "mdi:remote")}"></ha-icon></span>
+          <input class="fi" data-icon-input value="${this._x(e.icon)}" placeholder="mdi:play" />
+        </div>
+        <div class="form-row">
+          <button class="btn p icon-only" data-act="saveIcon" ${this._busy ? "disabled" : ""} title="${this._x(this._t("save"))}" aria-label="${this._x(this._t("save"))}">
+            <ha-icon icon="mdi:check"></ha-icon>
+          </button>
+          <button class="btn icon-only" data-act="clearIcon" ${this._busy ? "disabled" : ""} title="${this._x(this._t("clearIcon"))}" aria-label="${this._x(this._t("clearIcon"))}">
+            <ha-icon icon="mdi:eraser-variant"></ha-icon>
+          </button>
+          <button class="btn icon-only" data-act="cancelPanel" title="${this._x(this._t("cancel"))}" aria-label="${this._x(this._t("cancel"))}">
+            <ha-icon icon="mdi:close"></ha-icon>
+          </button>
+        </div>
+      </div>`;
+  }
+
+  _renderProfilePanel() {
+    const p = this._panel;
+    const isExport = p.mode === "export";
+    return `
+      <div class="panel">
+        <div class="panel-title">${this._x(isExport ? this._t("exportProfile") : this._t("importProfile"))}</div>
+        <div class="panel-hint">${this._x(isExport ? this._t("exportHint") : this._t("importHint"))}</div>
+        <textarea class="ta" data-panel-text ${isExport ? "readonly" : ""} placeholder="${isExport ? "" : this._x(this._t("pasteJson"))}">${this._x(p.text)}</textarea>
+        <div class="form-row">
+          ${isExport ? `
+            <button class="btn p" data-act="copyProfile"><ha-icon icon="mdi:content-copy"></ha-icon><span>${this._x(this._t("copy"))}</span></button>
+            <button class="btn" data-act="downloadProfile"><ha-icon icon="mdi:download"></ha-icon><span>${this._x(this._t("download"))}</span></button>
+          ` : `
+            <button class="btn p" data-act="runImport" ${this._busy ? "disabled" : ""}><ha-icon icon="mdi:tray-arrow-down"></ha-icon><span>${this._x(this._t("import"))}</span></button>
+          `}
+          <button class="btn icon-only" data-act="cancelPanel" title="${this._x(this._t("cancel"))}" aria-label="${this._x(this._t("cancel"))}">
+            <ha-icon icon="mdi:close"></ha-icon>
+          </button>
+        </div>
+      </div>`;
+  }
+
+  // ── Actions: rename / delete / icon / profile ─────────────────────────────
+
+  _openMenu(ds, trigger) {
+    this._closeEditors();
+    const cardRect = this.shadowRoot.querySelector("ha-card")?.getBoundingClientRect();
+    const triggerRect = trigger?.getBoundingClientRect();
+    const menuWidth = 180;
+    let left = 8;
+    let top = 40;
+    if (cardRect && triggerRect) {
+      left = Math.max(
+        8,
+        Math.min(
+          triggerRect.right - cardRect.left - menuWidth,
+          cardRect.width - menuWidth - 8
+        )
+      );
+      top = triggerRect.bottom - cardRect.top + 4;
+    }
+    this._menu = {
+      kind: ds.menu,
+      locId: ds.loc,
+      devId: ds.dev,
+      cmdId: ds.cmd,
+      left,
+      top,
+    };
+    this._render();
+  }
+
+  _runMenuAction(act) {
+    const m = this._menu;
+    this._menu = null;
+    if (!m) return;
+    if (act === "rename") {
+      this._rename = { kind: m.kind, locId: m.locId, devId: m.devId, cmdId: m.cmdId, name: this._nameOf(m) };
+      this._render();
+    } else if (act === "delete") {
+      this._doDelete(m);
+    } else if (act === "relearn") {
+      const cmdName = this._cmds()[m.cmdId]?.name || m.cmdId;
+      this._render();
+      this._startWizard(m.cmdId, cmdName);
+    } else if (act === "icon") {
+      this._iconEdit = { locId: m.locId, devId: m.devId, cmdId: m.cmdId, icon: this._cmds()[m.cmdId]?.icon || "" };
+      this._render();
+    } else if (act === "export") {
+      this._exportProfile(m);
+    } else if (act === "import") {
+      this._panel = { mode: "import", text: "" };
+      this._render();
+    }
+  }
+
+  async _renameSave() {
+    const r = this._rename;
+    const name = (r?.name || "").trim();
+    if (!r || !name) { this._rename = null; this._render(); return; }
+    await this._run(async () => {
+      if (r.kind === "loc")
+        await this._call("rename_location", { location_id: r.locId, name });
+      else if (r.kind === "dev")
+        await this._call("rename_device", { location_id: r.locId, ir_device_id: r.devId, name });
+      else
+        await this._call("rename_command", { location_id: r.locId, ir_device_id: r.devId, command_id: r.cmdId, name });
+      this._rename = null;
+      await this._loadRegistry();
+      this._msg = this._t("saved");
+    });
+  }
+
+  async _doDelete(m) {
+    if (!confirm(this._t("confirmDelete", { name: this._nameOf(m) }))) return;
+    await this._run(async () => {
+      if (m.kind === "loc") {
+        await this._call("delete_location", { location_id: m.locId, confirm: true });
+        if (this._selLoc === m.locId) { this._selLoc = ""; this._selDev = ""; }
+      } else if (m.kind === "dev") {
+        await this._call("delete_device", { location_id: m.locId, ir_device_id: m.devId, confirm: true });
+        if (this._selDev === m.devId) this._selDev = "";
+      } else {
+        await this._call("delete_command", { location_id: m.locId, ir_device_id: m.devId, command_id: m.cmdId });
+      }
+      await this._loadRegistry();
+      this._msg = this._t("deleted");
+    });
+  }
+
+  async _saveIcon() {
+    const e = this._iconEdit;
+    if (!e) return;
+    await this._run(async () => {
+      await this._call("update_command", {
+        location_id: e.locId, ir_device_id: e.devId, command_id: e.cmdId,
+        icon: (e.icon || "").trim(),
+      });
+      this._iconEdit = null;
+      await this._loadRegistry();
+      this._msg = this._t("saved");
+    });
+  }
+
+  _exportProfile(m) {
+    const loc = (this._registry.locations || {})[m.locId] || {};
+    const dev = (loc.devices || {})[m.devId] || {};
+    const profile = {
+      _profile: "ir_learning_hub",
+      version: 1,
+      name: dev.name || m.devId,
+      type: dev.type || "generic",
+      commands: dev.commands || {},
+    };
+    this._panel = { mode: "export", text: JSON.stringify(profile, null, 2), locId: m.locId, devId: m.devId };
+    this._render();
+  }
+
+  async _copyProfile() {
+    try {
+      await navigator.clipboard.writeText(this._panel?.text || "");
+      this._msg = this._t("copied"); this._render();
+    } catch (e) {
+      this._err = this._errText(e); this._render();
+    }
+  }
+
+  _downloadProfile() {
+    const blob = new Blob([this._panel?.text || ""], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${this._selDev || "profile"}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  async _runImport() {
+    const raw = this.shadowRoot.querySelector("[data-panel-text]")?.value || this._panel?.text || "";
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (e) {
+      this._err = this._t("invalidJson"); this._render(); return;
+    }
+    const commands = data?.commands || (data?._profile ? {} : data);
+    const entries = Object.entries(commands || {}).filter(([, cmd]) => cmd?.code);
+    if (!entries.length) { this._err = this._t("noCommandsInJson"); this._render(); return; }
+    const invalid = entries.find(([cmdId]) => !this._isValidId(cmdId));
+    if (invalid) {
+      this._err = this._t("invalidCommandId", { id: invalid[0] });
+      this._render();
+      return;
+    }
+    await this._run(async () => {
+      let count = 0;
+      for (const [cmdId, cmd] of entries) {
+        await this._call("save_command", {
+          location_id: this._selLoc,
+          ir_device_id: this._selDev,
+          command_id: cmdId,
+          name: cmd.name || cmdId,
+          code: cmd.code,
+          verified: cmd.verified !== false,
+        });
+        if (cmd.icon)
+          await this._call("update_command", {
+            location_id: this._selLoc, ir_device_id: this._selDev,
+            command_id: cmdId, icon: cmd.icon,
+          });
+        count++;
+      }
+      this._panel = null;
+      await this._loadRegistry();
+      this._msg = this._t("imported", { count: String(count) });
+    });
   }
 
   _renderWizard() {
@@ -486,7 +859,7 @@ class IRLearningHubCard extends HTMLElement {
           <img class="brand-icon" src="/ir_learning_hub/icon.png" alt="" />
           <span class="title">${this._x(this._config.title || "IR Learning Hub")}</span>
           <span class="status-dot ${dotClass}"></span>
-          <button class="btn icon-only" data-act="refresh" title="${this._x(this._t("refresh"))}" aria-label="${this._x(this._t("refresh"))}">
+          <button class="btn icon-only" data-act="refresh" title="${this._x(this._t("reloadList"))}" aria-label="${this._x(this._t("reloadList"))}">
             <ha-icon icon="mdi:refresh"></ha-icon>
           </button>
         </div>
@@ -498,6 +871,7 @@ class IRLearningHubCard extends HTMLElement {
             ${this._msg && !this._err ? `<div class="toast ok">${this._x(this._msg)}</div>` : ""}
           </div>
         </div>
+        ${this._menu ? `<div class="scrim" data-act="closeMenus"></div>${this._renderMenuOverlay()}` : ""}
       </ha-card>`;
 
     this._bind();
@@ -512,6 +886,7 @@ class IRLearningHubCard extends HTMLElement {
       el.addEventListener("click", () => {
         const id = el.dataset.toggle;
         this._expanded[id] = this._expanded[id] === false;
+        this._menu = null;
         this._render();
       })
     );
@@ -525,6 +900,7 @@ class IRLearningHubCard extends HTMLElement {
         clearInterval(this._countdownTimer);
         this._countdownTimer = null;
         this._wizard = null; this._msg = ""; this._err = "";
+        this._closeEditors();
         this._render();
       })
     );
@@ -539,14 +915,6 @@ class IRLearningHubCard extends HTMLElement {
 
     root.querySelectorAll("[data-send]").forEach(el =>
       el.addEventListener("click", () => this._send(el.dataset.send))
-    );
-
-    root.querySelectorAll("[data-relearn]").forEach(el =>
-      el.addEventListener("click", () => {
-        const cmdId = el.dataset.relearn;
-        const cmdName = this._cmds()[cmdId]?.name || cmdId;
-        this._startWizard(cmdId, cmdName);
-      })
     );
 
     root.querySelectorAll("[data-ff]").forEach(el =>
@@ -582,8 +950,54 @@ class IRLearningHubCard extends HTMLElement {
       if (this._wizard) this._wizard = { ...this._wizard, cmdName: wname.value };
     });
 
+    root.querySelectorAll("[data-menu]").forEach(el =>
+      el.addEventListener("click", (e) => { e.stopPropagation(); this._openMenu(el.dataset, el); })
+    );
+
+    root.querySelectorAll("[data-mact]").forEach(el =>
+      el.addEventListener("click", (e) => { e.stopPropagation(); this._runMenuAction(el.dataset.mact); })
+    );
+
+    const rin = root.querySelector("[data-rename-input]");
+    if (rin) {
+      rin.focus();
+      rin.addEventListener("input", () => { if (this._rename) this._rename.name = rin.value; });
+      rin.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") this._renameSave();
+        else if (e.key === "Escape") { this._rename = null; this._render(); }
+      });
+    }
+
+    const iin = root.querySelector("[data-icon-input]");
+    if (iin) iin.addEventListener("input", () => {
+      if (!this._iconEdit) return;
+      this._iconEdit.icon = iin.value;
+      const prev = root.querySelector("[data-icon-preview] ha-icon");
+      if (prev) prev.setAttribute("icon", iin.value || "mdi:remote");
+    });
+
+    root.querySelectorAll('[data-act="pickIcon"]').forEach(el =>
+      el.addEventListener("click", () => {
+        if (!this._iconEdit) return;
+        this._iconEdit.icon = el.dataset.icon;
+        this._render();
+      })
+    );
+
+    const pta = root.querySelector("[data-panel-text]");
+    if (pta) pta.addEventListener("input", () => { if (this._panel) this._panel.text = pta.value; });
+
     const acts = {
-      refresh: () => { this._msg = ""; this._err = ""; this._loadRegistry(); },
+      refresh: () => { this._msg = ""; this._err = ""; this._closeEditors(); this._loadRegistry(); },
+      closeMenus: () => { this._menu = null; this._render(); },
+      renameSave: () => this._renameSave(),
+      renameCancel: () => { this._rename = null; this._render(); },
+      saveIcon: () => this._saveIcon(),
+      clearIcon: () => { if (this._iconEdit) { this._iconEdit.icon = ""; this._saveIcon(); } },
+      cancelPanel: () => { this._iconEdit = null; this._panel = null; this._render(); },
+      copyProfile: () => this._copyProfile(),
+      downloadProfile: () => this._downloadProfile(),
+      runImport: () => this._runImport(),
       showAddLoc: () => { this._addForm = { type: "location", id: "", name: "", idTouched: false }; this._render(); },
       submitAdd: () => this._submitAdd(),
       cancelAdd: () => { this._addForm = null; this._render(); },
@@ -621,6 +1035,28 @@ const TRANSLATIONS = {
     commandName: "Command name",
     commandSaved: "Command saved",
     confirmUnverified: "Send unverified command \"{name}\"?",
+    actions: "Actions",
+    chooseIcon: "Choose icon",
+    clearIcon: "Clear icon",
+    confirmDelete: "Delete \"{name}\"?",
+    copied: "Copied",
+    copy: "Copy",
+    delete: "Delete",
+    deleted: "Deleted",
+    download: "Download",
+    exportHint: "Copy or download this device's commands as JSON.",
+    exportProfile: "Export profile",
+    iconLabel: "Icon",
+    import: "Import",
+    importHint: "Paste a profile JSON to add its commands to this device.",
+    importProfile: "Import profile",
+    imported: "Imported {count} command(s)",
+    invalidCommandId: "Invalid command ID: {id}",
+    invalidJson: "Invalid JSON",
+    noCommandsInJson: "No commands found in the JSON",
+    pasteJson: "Paste profile JSON here",
+    reloadList: "Reload list",
+    rename: "Rename",
     id: "ID",
     idHelper: "Lowercase letters, numbers, and underscores",
     idPlaceholder: "tv_power",
@@ -664,6 +1100,28 @@ const TRANSLATIONS = {
     commandName: "Название команды",
     commandSaved: "Команда сохранена",
     confirmUnverified: "Отправить непроверенную команду \"{name}\"?",
+    actions: "Действия",
+    chooseIcon: "Выбор иконки",
+    clearIcon: "Убрать иконку",
+    confirmDelete: "Удалить «{name}»?",
+    copied: "Скопировано",
+    copy: "Копировать",
+    delete: "Удалить",
+    deleted: "Удалено",
+    download: "Скачать",
+    exportHint: "Скопируйте или скачайте команды этого устройства в JSON.",
+    exportProfile: "Экспорт профиля",
+    iconLabel: "Иконка",
+    import: "Импорт",
+    importHint: "Вставьте JSON профиля, чтобы добавить его команды в это устройство.",
+    importProfile: "Импорт профиля",
+    imported: "Импортировано команд: {count}",
+    invalidCommandId: "Некорректный ID команды: {id}",
+    invalidJson: "Некорректный JSON",
+    noCommandsInJson: "В JSON нет команд",
+    pasteJson: "Вставьте JSON профиля сюда",
+    reloadList: "Обновить список",
+    rename: "Переименовать",
     id: "ID",
     idHelper: "Строчные латинские буквы, цифры и подчёркивания",
     idPlaceholder: "tv_power",
@@ -707,6 +1165,28 @@ const TRANSLATIONS = {
     commandName: "Назва команди",
     commandSaved: "Команду збережено",
     confirmUnverified: "Надіслати неперевірену команду \"{name}\"?",
+    actions: "Дії",
+    chooseIcon: "Вибір іконки",
+    clearIcon: "Прибрати іконку",
+    confirmDelete: "Видалити «{name}»?",
+    copied: "Скопійовано",
+    copy: "Копіювати",
+    delete: "Видалити",
+    deleted: "Видалено",
+    download: "Завантажити",
+    exportHint: "Скопіюйте або завантажте команди цього пристрою у JSON.",
+    exportProfile: "Експорт профілю",
+    iconLabel: "Іконка",
+    import: "Імпорт",
+    importHint: "Вставте JSON профілю, щоб додати його команди до цього пристрою.",
+    importProfile: "Імпорт профілю",
+    imported: "Імпортовано команд: {count}",
+    invalidCommandId: "Некоректний ID команди: {id}",
+    invalidJson: "Некоректний JSON",
+    noCommandsInJson: "У JSON немає команд",
+    pasteJson: "Вставте JSON профілю сюди",
+    reloadList: "Оновити список",
+    rename: "Перейменувати",
     id: "ID",
     idHelper: "Малі латинські літери, цифри та підкреслення",
     idPlaceholder: "tv_power",
@@ -742,7 +1222,8 @@ const TRANSLATIONS = {
 
 const STYLES = `
   :host { display: block; color: var(--primary-text-color); }
-  ha-card { overflow: hidden; }
+  ha-card { position: relative; overflow: visible; }
+  .header { border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; }
 
   /* Header */
   .header {
@@ -767,18 +1248,26 @@ const STYLES = `
     font-size: 13px;
   }
   .loc-row {
+    position: relative;
     display: flex; align-items: center; gap: 5px;
-    padding: 6px 6px; border-radius: 5px; cursor: pointer;
+    padding: 6px 6px; border-radius: 5px;
     font-weight: 600; user-select: none;
   }
   .loc-row:hover { background: var(--secondary-background-color); }
-  .arrow { font-size: 11px; color: var(--secondary-text-color); width: 10px; }
-  .loc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .loc-row.menu-open { overflow: visible; z-index: 60; }
+  .arrow { font-size: 11px; color: var(--secondary-text-color); width: 10px; cursor: pointer; }
+  .loc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
   .devs { margin-left: 15px; border-left: 2px solid var(--divider-color); padding-left: 6px; }
   .dev {
-    padding: 5px 7px; border-radius: 4px; cursor: pointer;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    position: relative;
+    display: flex; align-items: center;
+    padding: 5px 7px; border-radius: 4px;
     margin-bottom: 1px;
+  }
+  .dev.menu-open { overflow: visible; z-index: 60; }
+  .dev-name {
+    flex: 1; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .dev:hover { background: var(--secondary-background-color); }
   .dev.sel {
@@ -861,6 +1350,8 @@ const STYLES = `
     border-radius: 8px; overflow: hidden;
     display: flex;
   }
+  .cmd-card.menu-open { overflow: visible; z-index: 60; }
+  .cmd-card.editing { padding: 4px; gap: 4px; align-items: center; }
   .cmd-card.unv { border-style: dashed; }
   .cmd-send {
     flex: 1; min-height: 44px; padding: 8px 28px 8px 10px;
@@ -869,22 +1360,96 @@ const STYLES = `
     font: inherit; font-size: 13px; font-weight: 500;
     cursor: pointer; text-align: left; line-height: 1.3;
     transition: background 0.12s;
+    display: flex; align-items: center; gap: 8px; min-width: 0;
   }
   .cmd-send:hover { background: var(--primary-color); color: var(--text-primary-color); }
   .cmd-card.unv .cmd-send { color: var(--warning-color, orange); }
-  .cmd-relearn {
-    position: absolute; top: 4px; right: 4px;
-    width: 20px; height: 20px; padding: 0;
-    background: none; border: none; cursor: pointer;
-    font-size: 12px; color: var(--secondary-text-color);
-    opacity: 0; transition: opacity 0.15s;
+  .cmd-icon { --mdc-icon-size: 18px; flex-shrink: 0; }
+  .cmd-name { overflow: hidden; text-overflow: ellipsis; }
+
+  /* Kebab overflow trigger (commands, devices, locations) */
+  .kebab {
+    background: none; border: none; cursor: pointer; padding: 0;
+    color: var(--secondary-text-color); border-radius: 4px;
+    width: 24px; height: 24px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
-    border-radius: 4px;
+    opacity: 0; transition: opacity 0.12s;
   }
-  .cmd-relearn ha-icon { --mdc-icon-size: 14px; }
-  .cmd-card:hover .cmd-relearn { opacity: 1; }
-  @media (hover: none) { .cmd-relearn { opacity: 1; } }
-  .cmd-relearn:hover { background: var(--secondary-background-color); color: var(--primary-color); }
+  .kebab ha-icon { --mdc-icon-size: 18px; }
+  .kebab:hover { color: var(--primary-color); background: var(--secondary-background-color); }
+  .kebab.on-tile { position: absolute; top: 3px; right: 3px; }
+  .loc-row:hover .kebab,
+  .dev:hover .kebab,
+  .cmd-card:hover .kebab,
+  .menu-open .kebab { opacity: 1; }
+  @media (hover: none) { .kebab { opacity: 1; } }
+
+  /* Dropdown menu */
+  .menu {
+    position: absolute; z-index: 61;
+    min-width: 168px; padding: 4px;
+    background: var(--card-background-color, #fff);
+    border: 1px solid var(--divider-color); border-radius: 8px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+  }
+  .menu-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 8px 10px; border: none; border-radius: 6px;
+    background: none; color: var(--primary-text-color);
+    font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+  }
+  .menu-item ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
+  .menu-item:hover { background: var(--secondary-background-color); }
+  .menu-item.danger { color: var(--error-color, #f44336); }
+  .menu-item.danger ha-icon { color: var(--error-color, #f44336); }
+
+  /* Click-away scrim for open menus */
+  .scrim { position: absolute; inset: 0; z-index: 50; background: transparent; }
+
+  /* Inline rename row */
+  .kebab-btn {
+    background: none; border: none; cursor: pointer; padding: 0;
+    color: var(--secondary-text-color); border-radius: 4px; flex-shrink: 0;
+    width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  }
+  .kebab-btn ha-icon { --mdc-icon-size: 18px; }
+  .kebab-btn:hover { background: var(--secondary-background-color); }
+  .kebab-btn.ok { color: var(--primary-color); }
+  .rename-fi { min-height: 30px; padding: 4px 8px; font-size: 13px; }
+  .loc-row.editing, .dev.editing { gap: 4px; }
+
+  /* Icon picker panel + profile panel */
+  .panel {
+    padding: 12px; background: var(--secondary-background-color);
+    border-radius: 8px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .panel-title { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); }
+  .panel-hint { font-size: 12px; color: var(--secondary-text-color); line-height: 1.4; margin-top: -4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    width: 40px; height: 40px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--divider-color); background: var(--card-background-color);
+    color: var(--primary-text-color);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .chip ha-icon { --mdc-icon-size: 22px; }
+  .chip:hover { border-color: var(--primary-color); color: var(--primary-color); }
+  .chip.sel { border-color: var(--primary-color); background: var(--primary-color); color: var(--text-primary-color); }
+  .icon-preview {
+    width: 40px; height: 40px; flex-shrink: 0; border-radius: 8px;
+    border: 1px solid var(--divider-color);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--primary-text-color);
+  }
+  .icon-preview ha-icon { --mdc-icon-size: 24px; }
+  .ta {
+    width: 100%; box-sizing: border-box; min-height: 150px; resize: vertical;
+    padding: 10px; border: 1px solid var(--divider-color); border-radius: 6px;
+    background: var(--card-background-color); color: var(--primary-text-color);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+  .ta:focus { outline: 0; border-color: var(--primary-color); box-shadow: 0 0 0 1px var(--primary-color); }
+  .panel .form-row { justify-content: flex-start; }
 
   .remote-foot { margin-top: 4px; }
   .add-cmd-btn {

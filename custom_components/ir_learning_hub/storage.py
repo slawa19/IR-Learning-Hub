@@ -235,13 +235,37 @@ class IRRegistryStore:
             ir_device_id,
             {"name": ir_device_id, "type": "generic", "commands": {}},
         )
-        device["commands"][command_id] = {
+        existing = device["commands"].get(command_id, {})
+        command = {
             "name": name,
             "code": code,
             "format": code_format,
             "verified": verified,
             "updated_at": dt_util.utcnow().isoformat(),
         }
+        if existing.get("icon"):
+            command["icon"] = existing["icon"]
+        device["commands"][command_id] = command
+        await self.async_save()
+
+    async def update_command(
+        self,
+        location_id: str,
+        ir_device_id: str,
+        command_id: str,
+        name: str | None = None,
+        icon: str | None = None,
+    ) -> None:
+        """Update a command's name and/or icon without re-learning its code."""
+        command = self._command(location_id, ir_device_id, command_id)
+        if name is not None:
+            command["name"] = name
+        if icon is not None:
+            if icon:
+                command["icon"] = icon
+            else:
+                command.pop("icon", None)
+        command["updated_at"] = dt_util.utcnow().isoformat()
         await self.async_save()
 
     def get_command(self, location_id: str, ir_device_id: str, command_id: str) -> dict:

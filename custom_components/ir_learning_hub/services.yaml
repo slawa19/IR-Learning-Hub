@@ -148,6 +148,27 @@ add_command:
       selector:
         text:
 
+update_command:
+  fields:
+    location_id:
+      required: true
+      selector:
+        text:
+    ir_device_id:
+      required: true
+      selector:
+        text:
+    command_id:
+      required: true
+      selector:
+        text:
+    name:
+      selector:
+        text:
+    icon:
+      selector:
+        icon:
+
 rename_location:
   fields:
     location_id:

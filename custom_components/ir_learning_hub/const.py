@@ -49,6 +49,7 @@ SERVICE_RENAME_LOCATION = "rename_location"
 SERVICE_SAVE_COMMAND = "save_command"
 SERVICE_SEND_COMMAND = "send_command"
 SERVICE_TEST_CODE = "test_code"
+SERVICE_UPDATE_COMMAND = "update_command"
 
 STATUS_CODE_RECEIVED = "code_received"
 STATUS_ERROR = "error"
