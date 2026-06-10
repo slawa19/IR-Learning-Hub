@@ -1,0 +1,18 @@
+{
+  "domain": "ir_learning_hub",
+  "name": "IR Learning Hub",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["zha"],
+  "documentation": "https://github.com/local/ir_learning_hub",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/local/ir_learning_hub/issues",
+  "loggers": [
+    "custom_components.ir_learning_hub",
+    "zhaquirks.tuya.ts1201",
+    "zigpy"
+  ],
+  "requirements": [],
+  "version": "0.1.0"
+}

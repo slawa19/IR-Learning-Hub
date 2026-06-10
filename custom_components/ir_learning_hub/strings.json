@@ -1,0 +1,25 @@
+{
+  "title": "IR Learning Hub",
+  "config": {
+    "step": {
+      "user": {
+        "title": "IR Learning Hub",
+        "description": "Configure a ZHA-connected TS1201 / Zosung IR transmitter.",
+        "data": {
+          "ieee": "IEEE address",
+          "profile": "Device profile",
+          "endpoint_id": "Endpoint",
+          "cluster_id": "IR control cluster",
+          "learn_timeout": "Learn timeout",
+          "learn_reassert_interval": "Learn reassert interval"
+        }
+      }
+    },
+    "error": {
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This IR transmitter is already configured"
+    }
+  }
+}

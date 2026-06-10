@@ -88,6 +88,8 @@ IR Learning Hub теоретически может создать JSON-файл
 
 Критерии готовности и fallback описаны в разделе `12. MVP`, подраздел `MVP-0`.
 
+Статус на текущей реализации: MVP-0 подтверждён на HAOS/ZHA/TS1201. `learn_and_read` получает новый непустой код через backend-доступ к ZHA device proxy и реальному zigpy cluster. После рестарта HA `read_last_code` может возвращать `code_empty`, потому что volatile attribute `0x0000` очищается устройством; это штатное поведение.
+
 ## 4. Что должно получиться
 
 Пользовательский сценарий:
@@ -755,6 +757,19 @@ Command grid
 - custom integration получает непустой base64-код;
 - если прямой backend-доступ к ZHA WebSocket API невозможен, подтверждён fallback через ZHA gateway/device proxy / zigpy object без monkey patching;
 - Milestone 0 документирует фактически рабочий Python API чтения attribute `0` для HA 2026.6.1.
+
+Фактически подтверждённый путь чтения:
+
+```text
+IEEE → Home Assistant device_registry id
+  → async_get_zha_device_proxy(hass, device_registry_id)
+  → ZHADeviceProxy.device
+  → nested .device для real zigpy.device.Device
+  → endpoints[1].in_clusters[0xE004]
+  → read_attributes([0x0000])
+```
+
+Важно: `async_get_zha_device_proxy` в проверенной версии HA вызывается синхронно, несмотря на префикс `async_`.
 
 ### MVP-1: backend integration + services + storage
 
