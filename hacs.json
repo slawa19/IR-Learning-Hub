@@ -1,0 +1,6 @@
+{
+  "name": "IR Learning Hub",
+  "render_readme": true,
+  "domains": ["zha"],
+  "homeassistant": "2024.6.0"
+}

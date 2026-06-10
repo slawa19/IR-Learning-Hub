@@ -117,6 +117,8 @@ custom_components/ir_learning_hub/
 	zha_adapter.py           # ZHA learn/read/send adapter
 	www/ir-learning-hub-card.js
 
+hacs.json
+
 docs/
 	ARCHITECTURE.md
 	INSTALLATION.md
@@ -129,6 +131,22 @@ docs/
 ## Installation
 
 See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed steps.
+
+### HACS
+
+Add this repository as a HACS custom repository with category `Integration`:
+
+```text
+https://github.com/slawa19/IR-Learning-Hub
+```
+
+Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release `0.1.0` must contain:
+
+```json
+"version": "0.1.0"
+```
+
+Do not install a raw commit SHA as a HACS version; HACS validates versions and may reject commit hashes such as `fb1af13`.
 
 Short version:
 

@@ -41,6 +41,24 @@ The local integration icon is expected at:
 
 Restart Home Assistant after copying the files.
 
+## HACS Installation
+
+Add this repository as a HACS custom repository:
+
+```text
+https://github.com/slawa19/IR-Learning-Hub
+```
+
+Use category `Integration`.
+
+HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release `0.1.0` must contain:
+
+```json
+"version": "0.1.0"
+```
+
+If HACS shows an error such as `The version fb1af13 for this integration can not be used with HACS`, create or select a release/tag version instead of installing that commit hash.
+
 ## Add the Integration
 
 1. Open Home Assistant.
