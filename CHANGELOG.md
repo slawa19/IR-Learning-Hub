@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.2 - 2026-06-10
+
+### Changed
+
+- HACS now hides the default branch download option so users see release versions instead of commit IDs.
+
 ## 0.1.1 - 2026-06-10
 
 ### Added
