@@ -68,28 +68,36 @@ ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 def _id_schema(value: str) -> str:
     """Validate a stable registry ID."""
-    value = cv.string(value)
+    value = cv.string(value).strip()
     if not ID_PATTERN.fullmatch(value):
         raise vol.Invalid("ID must match [a-z0-9_]+")
     return value
 
 
-OPTIONAL_TRANSMITTER = {vol.Optional(FIELD_TRANSMITTER_ID): cv.string}
+def _non_empty_string(value: str) -> str:
+    """Validate a non-empty service string."""
+    value = cv.string(value).strip()
+    if not value:
+        raise vol.Invalid("Value must not be empty")
+    return value
+
+
+OPTIONAL_TRANSMITTER = {vol.Optional(FIELD_TRANSMITTER_ID): _non_empty_string}
 LOCATION_SCHEMA = {
     vol.Required(FIELD_LOCATION_ID): _id_schema,
-    vol.Required(FIELD_NAME): cv.string,
+    vol.Required(FIELD_NAME): _non_empty_string,
 }
 DEVICE_SCHEMA = {
     vol.Required(FIELD_LOCATION_ID): _id_schema,
     vol.Required(FIELD_IR_DEVICE_ID): _id_schema,
-    vol.Required(FIELD_NAME): cv.string,
-    vol.Optional(FIELD_TYPE, default="generic"): cv.string,
+    vol.Required(FIELD_NAME): _non_empty_string,
+    vol.Optional(FIELD_TYPE, default="generic"): _non_empty_string,
 }
 COMMAND_SCHEMA = {
     vol.Required(FIELD_LOCATION_ID): _id_schema,
     vol.Required(FIELD_IR_DEVICE_ID): _id_schema,
     vol.Required(FIELD_COMMAND_ID): _id_schema,
-    vol.Required(FIELD_NAME): cv.string,
+    vol.Required(FIELD_NAME): _non_empty_string,
 }
 
 
@@ -196,8 +204,18 @@ def _register_services(hass: HomeAssistant) -> None:
         func: Callable[[], Any],
         *,
         status_state: str = STATUS_IDLE,
+        start_status_state: str | None = None,
         data: dict[str, Any] | None = None,
     ) -> Any:
+        if start_status_state:
+            status.async_set(
+                start_status_state,
+                action=action,
+                location_id=(data or {}).get(FIELD_LOCATION_ID),
+                ir_device_id=(data or {}).get(FIELD_IR_DEVICE_ID),
+                command_id=(data or {}).get(FIELD_COMMAND_ID),
+            )
+
         try:
             result = await func()
             status.async_set(
@@ -235,6 +253,7 @@ def _register_services(hass: HomeAssistant) -> None:
         tx: dict[str, Any],
         timeout: int,
         first_reassert_after: int,
+        task_key: str,
     ) -> None:
         """Keep a sleepy TS1201 in learn mode for the requested window."""
         elapsed = 0
@@ -246,35 +265,49 @@ def _register_services(hass: HomeAssistant) -> None:
             remaining = timeout - elapsed
             if remaining > 0:
                 await asyncio.sleep(remaining)
-            status.async_set(STATUS_IDLE, action=SERVICE_LEARN)
+            if learn_tasks.get(task_key) is asyncio.current_task():
+                status.async_set(STATUS_IDLE, action=SERVICE_LEARN)
         except asyncio.CancelledError:
             raise
         except IRLearningHubError as err:
-            status.async_set(
-                STATUS_ERROR,
-                action=SERVICE_LEARN,
-                error=err.code,
-                error_message=err.message,
-            )
+            if learn_tasks.get(task_key) is asyncio.current_task():
+                status.async_set(
+                    STATUS_ERROR,
+                    action=SERVICE_LEARN,
+                    error=err.code,
+                    error_message=err.message,
+                )
         except Exception as err:
-            status.async_set(
-                STATUS_ERROR,
-                action=SERVICE_LEARN,
-                error=ERROR_UNEXPECTED,
-                error_message=str(err),
-            )
+            if learn_tasks.get(task_key) is asyncio.current_task():
+                status.async_set(
+                    STATUS_ERROR,
+                    action=SERVICE_LEARN,
+                    error=ERROR_UNEXPECTED,
+                    error_message=str(err),
+                )
+
+    def cancel_learn_window(tx: dict[str, Any]) -> None:
+        """Cancel background learn reassertion for one transmitter."""
+        task = learn_tasks.pop(tx["ieee"], None)
+        if task:
+            task.cancel()
 
     def schedule_learn_window(tx: dict[str, Any], timeout: int) -> None:
         """Schedule background learn reassertion for one transmitter."""
         task_key = tx["ieee"]
-        existing = learn_tasks.pop(task_key, None)
-        if existing:
-            existing.cancel()
+        cancel_learn_window(tx)
 
         interval = tx["config"].get("learn_reassert_interval", 8)
-        learn_tasks[task_key] = hass.async_create_task(
-            keep_learning_window(tx, timeout, interval)
+        task = hass.async_create_task(
+            keep_learning_window(tx, timeout, interval, task_key)
         )
+        learn_tasks[task_key] = task
+
+        def cleanup(done_task: asyncio.Task) -> None:
+            if learn_tasks.get(task_key) is done_task:
+                learn_tasks.pop(task_key, None)
+
+        task.add_done_callback(cleanup)
 
     async def learn(call: ServiceCall) -> dict[str, str]:
         async def action() -> dict[str, str]:
@@ -307,6 +340,7 @@ def _register_services(hass: HomeAssistant) -> None:
     async def learn_and_read(call: ServiceCall) -> dict[str, str]:
         async def action() -> dict[str, str]:
             tx = transmitter(call.data)
+            cancel_learn_window(tx)
             timeout = call.data[FIELD_TIMEOUT]
             poll_interval = call.data[FIELD_POLL_INTERVAL]
             reassert_interval = tx["config"].get("learn_reassert_interval", 8)
@@ -336,6 +370,7 @@ def _register_services(hass: HomeAssistant) -> None:
             SERVICE_LEARN_AND_READ,
             action,
             status_state=STATUS_CODE_RECEIVED,
+            start_status_state=STATUS_LEARNING,
             data=call.data,
         )
 
@@ -345,7 +380,11 @@ def _register_services(hass: HomeAssistant) -> None:
             return {"status": "sent"}
 
         return await run_service(
-            SERVICE_TEST_CODE, action, status_state=STATUS_SENDING, data=call.data
+            SERVICE_TEST_CODE,
+            action,
+            status_state=STATUS_IDLE,
+            start_status_state=STATUS_SENDING,
+            data=call.data,
         )
 
     async def save_command(call: ServiceCall) -> dict[str, str]:
@@ -373,7 +412,11 @@ def _register_services(hass: HomeAssistant) -> None:
             return {"status": "sent"}
 
         return await run_service(
-            SERVICE_SEND_COMMAND, action, status_state=STATUS_SENDING, data=call.data
+            SERVICE_SEND_COMMAND,
+            action,
+            status_state=STATUS_IDLE,
+            start_status_state=STATUS_SENDING,
+            data=call.data,
         )
 
     async def list_commands(call: ServiceCall) -> dict[str, Any]:
@@ -514,7 +557,9 @@ def _register_services(hass: HomeAssistant) -> None:
         DOMAIN,
         SERVICE_TEST_CODE,
         test_code,
-        schema=vol.Schema({vol.Required(FIELD_CODE): cv.string} | OPTIONAL_TRANSMITTER),
+        schema=vol.Schema(
+            {vol.Required(FIELD_CODE): _non_empty_string} | OPTIONAL_TRANSMITTER
+        ),
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
@@ -524,7 +569,7 @@ def _register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             COMMAND_SCHEMA
             | {
-                vol.Required(FIELD_CODE): cv.string,
+                vol.Required(FIELD_CODE): _non_empty_string,
                 vol.Optional(FIELD_VERIFIED, default=False): cv.boolean,
             }
         ),
@@ -588,7 +633,7 @@ def _register_services(hass: HomeAssistant) -> None:
             {
                 vol.Required(FIELD_LOCATION_ID): _id_schema,
                 vol.Required(FIELD_IR_DEVICE_ID): _id_schema,
-                vol.Required(FIELD_NAME): cv.string,
+                vol.Required(FIELD_NAME): _non_empty_string,
             }
         ),
         supports_response=SupportsResponse.OPTIONAL,

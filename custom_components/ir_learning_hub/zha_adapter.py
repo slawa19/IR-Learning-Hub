@@ -141,7 +141,10 @@ class ZHAAdapter:
 
             cluster = getattr(endpoint, "in_clusters", {}).get(cluster_id)
             if cluster is None:
-                cluster = getattr(endpoint, "zosung_ircontrol", None)
+                named_cluster = getattr(endpoint, "zosung_ircontrol", None)
+                candidate_cluster_id = getattr(named_cluster, "cluster_id", None)
+                if candidate_cluster_id == cluster_id:
+                    cluster = named_cluster
             if cluster is not None:
                 _LOGGER.debug("Using ZHA cluster from %s", type(candidate))
                 return cluster

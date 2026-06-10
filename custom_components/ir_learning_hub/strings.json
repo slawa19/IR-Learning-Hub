@@ -38,6 +38,7 @@
       }
     },
     "error": {
+      "device_not_found": "The selected ZHA IR transmitter is no longer available. Refresh the form and try again.",
       "unknown": "Unexpected error"
     },
     "abort": {

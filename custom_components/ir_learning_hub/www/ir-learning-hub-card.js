@@ -31,6 +31,12 @@ class IRLearningHubCard extends HTMLElement {
 
   getCardSize() { return 8; }
 
+  disconnectedCallback() {
+    this._wizardSeq++;
+    clearInterval(this._countdownTimer);
+    this._countdownTimer = null;
+  }
+
   _x(v) {
     return String(v ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -84,8 +90,12 @@ class IRLearningHubCard extends HTMLElement {
     this._busy = true; this._msg = ""; this._err = "";
     this._render();
     try { return await fn(); }
-    catch (e) { this._err = e?.message || String(e); }
+    catch (e) { this._err = this._errText(e); }
     finally { this._busy = false; this._render(); }
+  }
+
+  _errText(e) {
+    return e?.message || e?.body?.message || e?.error || String(e);
   }
 
   // ── Registry ──────────────────────────────────────────────────────────────
@@ -96,7 +106,7 @@ class IRLearningHubCard extends HTMLElement {
       this._registry = r?.response || r || { locations: {} };
       this._syncSel();
     } catch (e) {
-      this._err = e?.message || String(e);
+      this._err = this._errText(e);
     }
     this._render();
   }
@@ -126,16 +136,16 @@ class IRLearningHubCard extends HTMLElement {
         await this._call("add_location", {
           location_id: f.id.trim(), name: f.name.trim() || f.id.trim(),
         });
-        await this._loadRegistry();
         this._selLoc = f.id.trim();
         this._expanded[f.id.trim()] = true;
+        await this._loadRegistry();
       } else {
         await this._call("add_device", {
           location_id: this._selLoc, ir_device_id: f.id.trim(),
           name: f.name.trim() || f.id.trim(), type: "generic",
         });
-        await this._loadRegistry();
         this._selDev = f.id.trim();
+        await this._loadRegistry();
       }
       this._addForm = null;
       this._msg = this._t("saved");
@@ -158,6 +168,7 @@ class IRLearningHubCard extends HTMLElement {
     this._currentCode = ""; this._err = ""; this._msg = "";
     this._countdown = this._config.timeout || 60;
     clearInterval(this._countdownTimer);
+    this._countdownTimer = null;
     this._countdownTimer = setInterval(() => {
       this._countdown = Math.max(0, this._countdown - 1);
       this._render();
@@ -174,6 +185,7 @@ class IRLearningHubCard extends HTMLElement {
       }, true);
       if (!this._wizard || this._wizard.seq !== seq) return;
       clearInterval(this._countdownTimer);
+      this._countdownTimer = null;
       const code = r?.response?.code || r?.code || "";
       if (code) {
         this._currentCode = code;
@@ -185,7 +197,8 @@ class IRLearningHubCard extends HTMLElement {
     } catch (e) {
       if (!this._wizard || this._wizard.seq !== seq) return;
       clearInterval(this._countdownTimer);
-      this._err = e?.message || String(e);
+      this._countdownTimer = null;
+      this._err = this._errText(e);
       this._wizard = null;
     }
     this._render();
@@ -222,6 +235,7 @@ class IRLearningHubCard extends HTMLElement {
   _cancelWizard() {
     this._wizardSeq++;
     clearInterval(this._countdownTimer);
+    this._countdownTimer = null;
     this._wizard = null;
     this._render();
   }
@@ -493,6 +507,7 @@ class IRLearningHubCard extends HTMLElement {
         this._expanded[locId] = true;
         this._wizardSeq++;
         clearInterval(this._countdownTimer);
+        this._countdownTimer = null;
         this._wizard = null; this._msg = ""; this._err = "";
         this._render();
       })

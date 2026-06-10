@@ -29,6 +29,11 @@ from .device_profiles import get_profile
 from .storage import normalize_ieee
 
 MANUAL_DEVICE = "__manual__"
+MANUAL_SETUP_LABELS = {
+    "en": "Manual setup",
+    "ru": "Ручная настройка",
+    "uk": "Ручне налаштування",
+}
 
 
 class IRLearningHubConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -52,12 +57,15 @@ class IRLearningHubConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if selected == MANUAL_DEVICE:
                 return await self.async_step_manual()
 
-            data = dict(self._discovered[selected])
-            data[CONF_LEARN_TIMEOUT] = user_input[CONF_LEARN_TIMEOUT]
-            data[CONF_LEARN_REASSERT_INTERVAL] = user_input[
-                CONF_LEARN_REASSERT_INTERVAL
-            ]
-            return await self._async_create_transmitter_entry(data)
+            if selected in self._discovered:
+                data = dict(self._discovered[selected])
+                data[CONF_LEARN_TIMEOUT] = user_input[CONF_LEARN_TIMEOUT]
+                data[CONF_LEARN_REASSERT_INTERVAL] = user_input[
+                    CONF_LEARN_REASSERT_INTERVAL
+                ]
+                return await self._async_create_transmitter_entry(data)
+
+            errors[CONF_ZHA_DEVICE] = "device_not_found"
 
         choices = {
             device_id: item["label"]
@@ -66,7 +74,7 @@ class IRLearningHubConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 key=lambda entry: entry[1]["label"].casefold(),
             )
         }
-        choices[MANUAL_DEVICE] = "Enter device details manually"
+        choices[MANUAL_DEVICE] = _manual_setup_label(self.hass.config.language)
 
         schema = vol.Schema(
             {
@@ -186,6 +194,12 @@ def _device_label(device: dr.DeviceEntry, ieee: str) -> str:
         parts.append(str(device.model))
     parts.append(ieee)
     return " · ".join(parts)
+
+
+def _manual_setup_label(language: str | None) -> str:
+    """Return a localized label for the manual dynamic option."""
+    lang = (language or "en").split("-")[0]
+    return MANUAL_SETUP_LABELS.get(lang, MANUAL_SETUP_LABELS["en"])
 
 
 def _detect_profile_config(zha_device_proxy: Any) -> tuple[int, int] | None:
