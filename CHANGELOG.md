@@ -8,6 +8,20 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.3 - 2026-06-10
+
+### Added
+
+- Command action menus now support renaming, deleting, relearning, and choosing icons without cluttering the remote layout.
+- Device profiles can now be exported and imported as JSON for moving commands to another remote.
+- Commands can now keep a custom icon when they are relearned.
+
+### Fixed
+
+- Fixed the bundled card icon path so `/ir_learning_hub/icon.png` loads correctly after installation.
+- Fixed profile import validation so invalid command IDs are caught before any commands are saved.
+- Fixed dropdown menus so they are no longer clipped by the sidebar.
+
 ## 0.1.2 - 2026-06-10
 
 ### Changed
