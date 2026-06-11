@@ -1,4 +1,4 @@
-const IR_LEARNING_HUB_CARD_VERSION = "0.1.11";
+const IR_LEARNING_HUB_CARD_VERSION = "0.1.12";
 
 class IRLearningHubCard extends HTMLElement {
   constructor() {

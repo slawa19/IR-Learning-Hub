@@ -94,18 +94,18 @@ Use `generate_code`, then `test_code`, before saving a command as verified.
 Check:
 
 - Home Assistant was restarted after installing the integration;
-- the resource URL is `/ir_learning_hub/ir-learning-hub-card.js?v=11`;
+- the resource URL is `/ir_learning_hub/ir-learning-hub-card.js`;
 - the resource type is `module`;
-- the browser cache was refreshed;
+- Home Assistant was restarted after updating the integration;
 - the file exists at `custom_components/ir_learning_hub/www/ir-learning-hub-card.js`.
 
 The card logs its loaded version in the browser console:
 
 ```text
-IR-LEARNING-HUB-CARD 0.1.11
+IR-LEARNING-HUB-CARD 0.1.12
 ```
 
-If the console shows an older version, update the Lovelace resource query string and hard-refresh the browser.
+If the console shows an older version after updating, restart Home Assistant and reload the dashboard. The card script is registered without long-lived cache headers.
 
 ## Export profile copy does not put JSON on the clipboard
 

@@ -8,6 +8,16 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.12 - 2026-06-11
+
+### Added
+
+- Added a Lovelace card screenshot to the README for GitHub and HACS rendering.
+
+### Changed
+
+- The Lovelace card JavaScript is now served without long-lived cache headers, so users no longer need to change the resource query string after integration updates.
+
 ## 0.1.11 - 2026-06-11
 
 ### Added

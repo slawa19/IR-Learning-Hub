@@ -92,7 +92,7 @@ The integration serves the bundled card at:
 Add it as a Lovelace resource:
 
 ```yaml
-url: /ir_learning_hub/ir-learning-hub-card.js?v=11
+url: /ir_learning_hub/ir-learning-hub-card.js
 type: module
 ```
 
@@ -136,8 +136,7 @@ You can also validate through the Lovelace card:
 
 1. Update through HACS, or replace the files under `custom_components/ir_learning_hub` for a manual install.
 2. Restart Home Assistant.
-3. Refresh the browser cache if the Lovelace card changed.
-4. Bump the card resource query string if needed, for example `?v=11`.
+3. Reload the dashboard in the browser.
 
 If HACS still shows an older version, reload HACS data and check for the latest release again.
 

@@ -221,7 +221,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
             icon_path = integration_path / "brand" / "icon.png"
         await hass.http.async_register_static_paths(
             [
-                StaticPathConfig(FRONTEND_URL, str(card_path), True),
+                StaticPathConfig(FRONTEND_URL, str(card_path), False),
                 StaticPathConfig(FRONTEND_ICON_URL, str(icon_path), True),
             ]
         )

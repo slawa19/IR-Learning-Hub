@@ -143,11 +143,11 @@ Install the latest available release, then restart Home Assistant.
 Add the bundled card as a Lovelace resource:
 
 ```yaml
-url: /ir_learning_hub/ir-learning-hub-card.js?v=11
+url: /ir_learning_hub/ir-learning-hub-card.js
 type: module
 ```
 
-After updating the card, bump the query string and hard-refresh the browser if Home Assistant still serves the old JavaScript.
+After updating the integration, restart Home Assistant. The card script is served without long-lived cache headers, so the browser should pick up the new version without changing the resource URL.
 
 ## Basic Usage
 
