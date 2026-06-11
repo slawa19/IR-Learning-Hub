@@ -73,6 +73,8 @@ It provides:
 - device-profile export/import;
 - a compact status indicator with tooltip for idle, learning, sending, code received, and error states.
 
+![IR Learning Hub Lovelace card with a Sony STR-DB840 profile](docs/images/ir-learning-hub-card-sony-str-db840.jpg)
+
 Example card configuration:
 
 ```yaml
