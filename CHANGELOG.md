@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.13 - 2026-06-11
+
+### Fixed
+
+- Prevented duplicate Lovelace card custom-element registration when Home Assistant loads the card module more than once in the same browser session.
+
 ## 0.1.12 - 2026-06-11
 
 ### Added

@@ -102,7 +102,7 @@ Check:
 The card logs its loaded version in the browser console:
 
 ```text
-IR-LEARNING-HUB-CARD 0.1.12
+IR-LEARNING-HUB-CARD 0.1.13
 ```
 
 If the console shows an older version after updating, restart Home Assistant and reload the dashboard. The card script is registered without long-lived cache headers.

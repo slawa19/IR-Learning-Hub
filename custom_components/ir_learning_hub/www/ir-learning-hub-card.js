@@ -1,4 +1,4 @@
-const IR_LEARNING_HUB_CARD_VERSION = "0.1.12";
+const IR_LEARNING_HUB_CARD_VERSION = "0.1.13";
 
 class IRLearningHubCard extends HTMLElement {
   constructor() {
@@ -1570,14 +1570,16 @@ const STYLES = `
   .toast.ok  { color: var(--success-color, #4caf50); }
 `;
 
-customElements.define("ir-learning-hub-card", IRLearningHubCard);
+if (!customElements.get("ir-learning-hub-card"))
+  customElements.define("ir-learning-hub-card", IRLearningHubCard);
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "ir-learning-hub-card",
-  name: "IR Learning Hub",
-  description: "Learn, test, save, and send IR commands through IR Learning Hub.",
-  version: IR_LEARNING_HUB_CARD_VERSION,
-});
+if (!window.customCards.some(card => card.type === "ir-learning-hub-card"))
+  window.customCards.push({
+    type: "ir-learning-hub-card",
+    name: "IR Learning Hub",
+    description: "Learn, test, save, and send IR commands through IR Learning Hub.",
+    version: IR_LEARNING_HUB_CARD_VERSION,
+  });
 console.info(
   `%c IR-LEARNING-HUB-CARD %c ${IR_LEARNING_HUB_CARD_VERSION} `,
   "color:#fff;background:#03a9f4;border-radius:3px 0 0 3px;padding:2px 4px",
