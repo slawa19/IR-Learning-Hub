@@ -125,6 +125,40 @@
         }
       }
     },
+    "generate_code": {
+      "name": "Generate code",
+      "description": "Generate a sendable IR code from a protocol description (e.g. Sony SIRC) without learning it from a remote. Returns a code you can test and save.",
+      "fields": {
+        "protocol": {
+          "name": "Protocol",
+          "description": "IR protocol to generate. Currently sony_sirc."
+        },
+        "command": {
+          "name": "Command",
+          "description": "Protocol command code (e.g. 18 for Sony Volume Up)."
+        },
+        "device": {
+          "name": "Device",
+          "description": "Protocol device/address code (e.g. 16 for a Sony receiver)."
+        },
+        "bits": {
+          "name": "Bits",
+          "description": "SIRC frame length: 12, 15, or 20. Defaults to 12."
+        },
+        "extended": {
+          "name": "Extended",
+          "description": "Extended byte for 20-bit SIRC. Ignored for 12/15-bit."
+        },
+        "repeats": {
+          "name": "Repeats",
+          "description": "How many times the frame is sent. Sony needs at least 3. Defaults to 3."
+        },
+        "carrier_frequency": {
+          "name": "Carrier frequency",
+          "description": "Optional carrier override in Hz. Defaults to the protocol value (40000 for Sony)."
+        }
+      }
+    },
     "save_command": {
       "name": "Save command",
       "description": "Save or replace an IR command in the registry.",
@@ -152,6 +186,10 @@
         "verified": {
           "name": "Verified",
           "description": "Mark the command as tested and verified."
+        },
+        "source": {
+          "name": "Source",
+          "description": "Optional provenance object for non-learned commands, e.g. the output of generate_code. Stored as-is and never sent."
         }
       }
     },
@@ -363,6 +401,7 @@
   },
   "exceptions": {
     "code_empty": { "message": "The IR code is empty." },
+    "code_generation_failed": { "message": "Could not generate the IR code from the given protocol parameters." },
     "cluster_not_found": { "message": "The IR control cluster was not found on the device." },
     "command_not_found": { "message": "The requested command was not found." },
     "learn_failed": { "message": "Failed to start or complete IR learning." },

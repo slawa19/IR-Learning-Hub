@@ -18,6 +18,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     DOMAIN,
     ERROR_CODE_EMPTY,
+    ERROR_CODE_GENERATION,
     ERROR_LEARN_TIMEOUT,
     ERROR_UNEXPECTED,
     SERVICE_ADD_COMMAND,
@@ -26,6 +27,7 @@ from .const import (
     SERVICE_DELETE_COMMAND,
     SERVICE_DELETE_DEVICE,
     SERVICE_DELETE_LOCATION,
+    SERVICE_GENERATE_CODE,
     SERVICE_LEARN,
     SERVICE_LEARN_AND_READ,
     SERVICE_LIST_COMMANDS,
@@ -44,6 +46,12 @@ from .const import (
     STATUS_SENDING,
 )
 from .errors import IRLearningHubError
+from .ir_formats import (
+    IRFormatError,
+    generate_protocol,
+    list_protocols,
+    zosung_encode,
+)
 from .status import HubStatus
 from .storage import IRRegistryStore
 from .zha_adapter import ZHAAdapter
@@ -53,19 +61,30 @@ _LOGGER = logging.getLogger(__name__)
 FRONTEND_URL = "/ir_learning_hub/ir-learning-hub-card.js"
 FRONTEND_ICON_URL = "/ir_learning_hub/icon.png"
 
+FIELD_BITS = "bits"
+FIELD_CARRIER_FREQUENCY = "carrier_frequency"
 FIELD_CODE = "code"
+FIELD_COMMAND = "command"
 FIELD_COMMAND_ID = "command_id"
 FIELD_CONFIRM = "confirm"
+FIELD_DEVICE = "device"
+FIELD_EXTENDED = "extended"
 FIELD_ICON = "icon"
 FIELD_IR_DEVICE_ID = "ir_device_id"
 FIELD_LOCATION_ID = "location_id"
 FIELD_NAME = "name"
 FIELD_POLL_INTERVAL = "poll_interval"
+FIELD_PROTOCOL = "protocol"
+FIELD_REPEATS = "repeats"
+FIELD_SOURCE = "source"
 FIELD_TIMEOUT = "timeout"
 FIELD_TRANSMITTER_ID = "transmitter_id"
 FIELD_TYPE = "type"
 FIELD_VERIFIED = "verified"
 ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
+SONY_SIRC_BITS = (12, 15, 20)
+SONY_SIRC_FRAME_PERIOD_US = 45000
+GENERATE_MAX_REPEATS = 20
 
 
 def _id_schema(value: str) -> str:
@@ -169,6 +188,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_READ_LAST_CODE,
         SERVICE_LEARN_AND_READ,
         SERVICE_TEST_CODE,
+        SERVICE_GENERATE_CODE,
         SERVICE_SAVE_COMMAND,
         SERVICE_SEND_COMMAND,
         SERVICE_LIST_COMMANDS,
@@ -407,6 +427,50 @@ def _register_services(hass: HomeAssistant) -> None:
             data=call.data,
         )
 
+    async def generate_code(call: ServiceCall) -> dict[str, Any]:
+        async def action() -> dict[str, Any]:
+            protocol = call.data[FIELD_PROTOCOL]
+            # Note: this parameter set is Sony SIRC-shaped. When a second
+            # protocol is added, move per-protocol param assembly into the
+            # ir_formats dispatcher rather than growing this block.
+            params: dict[str, Any] = {
+                "command": call.data[FIELD_COMMAND],
+                "device": call.data[FIELD_DEVICE],
+                "bits": call.data[FIELD_BITS],
+                "extended": call.data[FIELD_EXTENDED],
+                "repeats": call.data[FIELD_REPEATS],
+                # Recorded in provenance so a saved command can be regenerated
+                # even if the protocol default changes later.
+                "frame_period_us": SONY_SIRC_FRAME_PERIOD_US,
+            }
+            carrier_override = call.data.get(FIELD_CARRIER_FREQUENCY)
+            if carrier_override is not None:
+                params["carrier_frequency"] = carrier_override
+            try:
+                signal = generate_protocol(protocol, params)
+                code = zosung_encode(signal)
+            except IRFormatError as err:
+                raise IRLearningHubError(ERROR_CODE_GENERATION, str(err)) from err
+
+            source = {
+                "type": "protocol",
+                "protocol": protocol,
+                "carrier_frequency": signal.carrier_frequency,
+                "params": {
+                    key: value
+                    for key, value in params.items()
+                    if key != "carrier_frequency"
+                },
+            }
+            return {
+                "code": code,
+                "format": "zosung_base64",
+                "carrier_frequency": signal.carrier_frequency,
+                "source": source,
+            }
+
+        return await run_service(SERVICE_GENERATE_CODE, action, data=call.data)
+
     async def save_command(call: ServiceCall) -> dict[str, str]:
         async def action() -> dict[str, str]:
             await store.save_command(
@@ -416,6 +480,7 @@ def _register_services(hass: HomeAssistant) -> None:
                 call.data[FIELD_NAME],
                 call.data[FIELD_CODE],
                 call.data[FIELD_VERIFIED],
+                source=call.data.get(FIELD_SOURCE),
             )
             return {"status": "saved"}
 
@@ -597,6 +662,31 @@ def _register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_GENERATE_CODE,
+        generate_code,
+        schema=vol.Schema(
+            {
+                vol.Required(FIELD_PROTOCOL): vol.In(list_protocols()),
+                vol.Required(FIELD_COMMAND): vol.All(int, vol.Range(min=0)),
+                vol.Required(FIELD_DEVICE): vol.All(int, vol.Range(min=0)),
+                vol.Optional(FIELD_BITS, default=12): vol.All(
+                    vol.Coerce(int), vol.In(SONY_SIRC_BITS)
+                ),
+                vol.Optional(FIELD_EXTENDED, default=0): vol.All(
+                    int, vol.Range(min=0, max=255)
+                ),
+                vol.Optional(FIELD_REPEATS, default=3): vol.All(
+                    int, vol.Range(min=1, max=GENERATE_MAX_REPEATS)
+                ),
+                vol.Optional(FIELD_CARRIER_FREQUENCY): vol.All(
+                    int, vol.Range(min=1)
+                ),
+            }
+        ),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_SAVE_COMMAND,
         save_command,
         schema=vol.Schema(
@@ -604,6 +694,7 @@ def _register_services(hass: HomeAssistant) -> None:
             | {
                 vol.Required(FIELD_CODE): _non_empty_string,
                 vol.Optional(FIELD_VERIFIED, default=False): cv.boolean,
+                vol.Optional(FIELD_SOURCE): dict,
             }
         ),
         supports_response=SupportsResponse.OPTIONAL,

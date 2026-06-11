@@ -220,8 +220,14 @@ class IRRegistryStore:
         code: str,
         verified: bool,
         code_format: str = "zosung_base64",
+        source: dict[str, Any] | None = None,
     ) -> None:
-        """Upsert a learned command."""
+        """Upsert a learned or generated command.
+
+        ``source`` is optional provenance for non-learned commands (e.g. a
+        protocol generator or a future importer). It is stored verbatim and never
+        used on the send path; the transmitter always sends ``code``.
+        """
         if not code:
             raise IRLearningHubError(ERROR_STORAGE_ERROR, "code must not be empty")
         _validate_id(location_id, "location_id")
@@ -245,6 +251,8 @@ class IRRegistryStore:
         }
         if existing.get("icon"):
             command["icon"] = existing["icon"]
+        if source is not None:
+            command["source"] = source
         device["commands"][command_id] = command
         await self.async_save()
 
