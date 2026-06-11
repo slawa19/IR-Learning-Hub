@@ -8,6 +8,24 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.11 - 2026-06-11
+
+### Added
+
+- Added an internal IR format layer with normalized raw timings and Zosung base64 encoding/decoding.
+- Added Sony SIRC generation through the `ir_learning_hub.generate_code` service.
+- Added a local `tools/generate_sony_str_db840_profile.py` utility for generating a Lovelace-card-importable Sony STR-DB840 profile.
+
+### Changed
+
+- Device profile import now preserves optional command `source` provenance.
+- The Lovelace card header now keeps only the status indicator, with a tooltip, and removes the manual refresh button.
+- README and installation docs now focus on end-user setup and current card/service workflows.
+
+### Validated
+
+- Sony SIRC generation was validated on a Sony STR-DB840 receiver with the `Power` command.
+
 ## 0.1.10 - 2026-06-11
 
 ### Fixed

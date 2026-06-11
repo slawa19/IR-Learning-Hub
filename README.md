@@ -1,6 +1,6 @@
 # IR Learning Hub
 
-IR Learning Hub is a local Home Assistant custom integration for learning, storing, testing, organizing, exporting, importing, and replaying infrared commands through a ZHA-connected Tuya TS1201 / MOES UFO-R11 IR blaster.
+IR Learning Hub is a local Home Assistant custom integration for learning, generating, storing, testing, organizing, exporting, importing, and replaying infrared commands through a ZHA-connected Tuya TS1201 / MOES UFO-R11 IR blaster.
 
 It turns the TS1201 from a low-level ZHA device into a usable remote-control hub: learn a button from a physical remote, test it, save it under a stable command ID, replay it from Home Assistant services, and manage the command library from a Lovelace card.
 
@@ -11,6 +11,7 @@ The integration is intentionally local-first. It uses Home Assistant's native ZH
 - Discovers supported ZHA IR transmitters during setup, with manual setup as a fallback.
 - Starts TS1201 learning mode and reads the learned IR code from ZHA.
 - Sends raw learned codes for testing before saving.
+- Generates Sony SIRC commands, including a tested Sony STR-DB840 profile workflow, without requiring the original remote for every button.
 - Stores verified commands in Home Assistant storage.
 - Organizes commands as `Location -> IR device -> Command`.
 - Exposes a stable Home Assistant service API for automations, scripts, and Developer Tools.
@@ -70,7 +71,7 @@ It provides:
 - inline rename actions;
 - delete confirmations;
 - device-profile export/import;
-- manual registry refresh after external changes.
+- a compact status indicator with tooltip for idle, learning, sending, code received, and error states.
 
 Example card configuration:
 
@@ -92,6 +93,7 @@ IR Learning Hub exposes services under the `ir_learning_hub` domain:
 - `read_last_code`
 - `learn_and_read`
 - `test_code`
+- `generate_code`
 - `save_command`
 - `send_command`
 - `list_commands`
@@ -132,20 +134,14 @@ Add this repository as a HACS custom repository with category `Integration`:
 https://github.com/slawa19/IR-Learning-Hub
 ```
 
-Install a GitHub release/tag whose version matches `custom_components/ir_learning_hub/manifest.json`. For example, release tag `v0.1.10` must contain:
-
-```json
-"version": "0.1.10"
-```
-
-Do not install a raw commit SHA as a HACS version. HACS validates versions and may reject commit hashes such as `fb1af13`. Publish releases with semantic git tags such as `v0.1.10` so HACS can show normal version numbers and release notes.
+Install the latest available release, then restart Home Assistant.
 
 ### Lovelace Resource
 
 Add the bundled card as a Lovelace resource:
 
 ```yaml
-url: /ir_learning_hub/ir-learning-hub-card.js?v=10
+url: /ir_learning_hub/ir-learning-hub-card.js?v=11
 type: module
 ```
 
@@ -185,6 +181,32 @@ verified: true
 
 IDs must match `[a-z0-9_]+`. Display names can be normal human-readable text.
 
+## Generated Sony Commands
+
+IR Learning Hub can generate Sony SIRC commands and convert them into the same `zosung_base64` payload that the TS1201 sends. This was validated on a Sony STR-DB840 receiver with the `Power` command.
+
+Example service call:
+
+```yaml
+service: ir_learning_hub.generate_code
+data:
+  protocol: sony_sirc
+  command: 21
+  device: 16
+  bits: "12"
+  repeats: 3
+```
+
+Use the returned `code` with `ir_learning_hub.test_code`, then save it with `save_command` if the device responds.
+
+The repository also includes a small local utility that generates a card-importable Sony STR-DB840 profile:
+
+```text
+python tools/generate_sony_str_db840_profile.py --output sony_str_db840.json
+```
+
+Import the generated JSON from the device menu in the Lovelace card. Use `--verified` only after you have confirmed the generated commands work with your receiver.
+
 ## Command Library
 
 The registry is structured like this:
@@ -196,7 +218,7 @@ transmitter
       command
 ```
 
-Command records store the learned code, display name, format, verification flag, update timestamp, and optional display icon. Relearning a command replaces the IR code but preserves its icon.
+Command records store the learned or generated code, display name, format, verification flag, update timestamp, optional display icon, and optional source/provenance data. Relearning a command replaces the IR code but preserves its icon.
 
 The device profile export/import feature exports one IR device's commands as JSON. Import writes those commands into the device selected from the menu and uses the same backend services as the card.
 
@@ -248,11 +270,14 @@ custom_components/ir_learning_hub/
 	storage.py               # Store-backed command registry
 	strings.json             # English source strings for HA translations
 	translations/            # backend translations
+	ir_formats/              # pure IR format/protocol conversion helpers
 	zha_adapter.py           # ZHA learn/read/send adapter
 	www/ir-learning-hub-card.js
 
 brand/                      # HACS repository icon assets
 hacs.json
+tools/
+	generate_sony_str_db840_profile.py
 
 docs/
 	ARCHITECTURE.md
@@ -279,7 +304,7 @@ docs/
 
 The integration keeps ZHA transport logic in `zha_adapter.py`, registry logic in `storage.py`, setup logic in `config_flow.py`, and user workflow logic in the Lovelace card. The UI should call integration services and should not reimplement ZHA reads or Zigbee cluster traversal.
 
-When publishing a release, keep `manifest.json`, the Lovelace card version, README examples, installation docs, changelog, the git tag, and the GitHub Release in sync. HACS uses the release/tag and manifest version to decide what users see.
+When publishing a release, keep `manifest.json`, the Lovelace card version, README examples, installation docs, changelog, the git tag, and the GitHub Release in sync.
 
 ## License
 

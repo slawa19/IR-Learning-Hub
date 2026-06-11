@@ -138,26 +138,38 @@ Current command record (see `save_command` in
 }
 ```
 
-Target record adds optional provenance fields (all backward compatible):
+Target record adds optional structured provenance (backward compatible):
 
 ```json
 {
   "name": "Power",
   "code": "<base64>",
   "format": "zosung_base64",
-  "carrier_frequency": 38000,
-  "source_format": "pronto",
   "verified": false,
   "updated_at": "…",
-  "icon": "mdi:power"
+  "icon": "mdi:power",
+  "source": {
+    "type": "protocol",
+    "protocol": "sony_sirc",
+    "carrier_frequency": 40000,
+    "params": {
+      "command": 21,
+      "device": 16,
+      "bits": 12,
+      "extended": 0,
+      "repeats": 3,
+      "frame_period_us": 45000
+    }
+  }
 }
 ```
 
 - `code` / `format` keep their current meaning; `zosung_base64` stays the value
   that is actually transmitted.
-- `source_format` records where the code came from (`learned`, `pronto`, `raw`,
-  `lirc_raw`, …) for display and re-export.
-- `carrier_frequency` is informational and drives the frequency-mismatch warning.
+- `source` records where the code came from (`protocol`, future `pronto`, `raw`,
+  `lirc_raw`, …) for display, re-export, and regeneration where possible.
+- `source.carrier_frequency` is informational and drives the frequency-mismatch
+  warning.
 - Imported commands are saved with `verified: false` until tested, matching the
   existing learn-then-test workflow.
 
@@ -221,8 +233,8 @@ need, with no user-visible behavior change yet.
   header and both once/repeat burst pairs.
 - Carrier-mismatch warning surfaced to the caller (not just logged).
 - New service `import_command` (and/or extend `save_command`) that accepts a
-  `source_format` + payload, converts to `zosung_base64`, and stores it via the
-  existing registry path. Document in [SERVICES.md](SERVICES.md).
+  structured source + payload, converts to `zosung_base64`, and stores it via
+  the existing registry path. Document in [SERVICES.md](SERVICES.md).
 
 **Acceptance:**
 - Known Pronto samples convert to expected timings within tolerance.
@@ -238,7 +250,7 @@ surface for importing.
 - Accept a raw timings list (with optional carrier) through `import_command`.
 - Card: an "Import command" entry in the device/command menu with a format
   selector (`Pronto`, `Raw`) and a paste field, calling the new service.
-- Show `source_format` on imported commands; keep them `verified: false` until
+- Show `source` provenance on imported commands; keep them `verified: false` until
   tested with the existing test action.
 
 **Acceptance:**

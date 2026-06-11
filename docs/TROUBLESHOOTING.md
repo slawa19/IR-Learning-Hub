@@ -65,12 +65,36 @@ Try:
 - moving the TS1201 for better IR line of sight;
 - checking whether the original remote uses a long press or repeated frame behavior.
 
+## Generated Sony code does not control the receiver
+
+First confirm that normal learned commands work with the same TS1201 placement.
+
+For Sony receivers, start with:
+
+```yaml
+protocol: sony_sirc
+device: 16
+bits: "12"
+repeats: 3
+```
+
+If the receiver is configured for an alternate Sony AV mode, try:
+
+```yaml
+protocol: sony_sirc
+device: 48
+bits: "15"
+repeats: 3
+```
+
+Use `generate_code`, then `test_code`, before saving a command as verified.
+
 ## Lovelace card does not load
 
 Check:
 
 - Home Assistant was restarted after installing the integration;
-- the resource URL is `/ir_learning_hub/ir-learning-hub-card.js?v=10`;
+- the resource URL is `/ir_learning_hub/ir-learning-hub-card.js?v=11`;
 - the resource type is `module`;
 - the browser cache was refreshed;
 - the file exists at `custom_components/ir_learning_hub/www/ir-learning-hub-card.js`.
@@ -78,7 +102,7 @@ Check:
 The card logs its loaded version in the browser console:
 
 ```text
-IR-LEARNING-HUB-CARD 0.1.10
+IR-LEARNING-HUB-CARD 0.1.11
 ```
 
 If the console shows an older version, update the Lovelace resource query string and hard-refresh the browser.

@@ -81,6 +81,48 @@ Returns:
 status: sent
 ```
 
+### `ir_learning_hub.generate_code`
+
+Generates a sendable `zosung_base64` code from protocol parameters.
+
+Currently supported protocol:
+
+```text
+sony_sirc
+```
+
+Example Sony receiver power toggle:
+
+```yaml
+protocol: sony_sirc
+command: 21
+device: 16
+bits: "12"
+repeats: 3
+```
+
+Returns response data:
+
+```yaml
+code: "<base64-code>"
+format: zosung_base64
+carrier_frequency: 40000
+source:
+  type: protocol
+  protocol: sony_sirc
+  carrier_frequency: 40000
+  params:
+    command: 21
+    device: 16
+    bits: 12
+    extended: 0
+    repeats: 3
+    frame_period_us: 45000
+```
+
+Use the returned `code` with `test_code` first. If the target device responds,
+save it with `save_command`.
+
 ### `ir_learning_hub.save_command`
 
 Saves or replaces a command in the registry.
@@ -92,6 +134,17 @@ command_id: open_close
 name: Open/Close
 code: "<base64-code>"
 verified: true
+source:
+  type: protocol
+  protocol: sony_sirc
+  carrier_frequency: 40000
+  params:
+    command: 21
+    device: 16
+    bits: 12
+    extended: 0
+    repeats: 3
+    frame_period_us: 45000
 ```
 
 Returns:
@@ -103,6 +156,10 @@ status: saved
 This service is an upsert. If the command already exists, the stored code, name, format, verified flag, and update timestamp are replaced.
 
 If the existing command has an `icon`, relearning or saving a replacement code preserves that icon.
+
+`source` is optional provenance for generated or imported commands. It is stored
+for display, export, and future regeneration. It is not used when sending; the
+runtime still sends the stored opaque `code`.
 
 ### `ir_learning_hub.update_command`
 
@@ -178,6 +235,9 @@ locations:
             code: "<base64-code>"
             format: zosung_base64
             verified: true
+            source:
+              type: protocol
+              protocol: sony_sirc
             updated_at: "2026-06-09T16:42:00+00:00"
 ```
 
@@ -281,6 +341,7 @@ cluster_not_found
 learn_failed
 learn_timeout
 code_empty
+code_generation_failed
 send_failed
 command_not_found
 storage_error

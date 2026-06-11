@@ -52,9 +52,25 @@ The current store contains transmitter metadata and user command registry data:
 }
 ```
 
-Locations contain IR devices, and IR devices contain commands. Saved command codes are treated as opaque `zosung_base64` payloads and are not decoded or transformed by the integration.
+Locations contain IR devices, and IR devices contain commands. Saved command codes are treated as opaque `zosung_base64` payloads by the send path.
 
-Commands may also contain optional display metadata such as `icon`. This metadata is independent from the learned IR code and is preserved when a command is relearned.
+Commands may also contain optional display metadata such as `icon` and optional
+`source` provenance for generated/imported commands. This metadata is
+independent from the stored IR code and is not used by the ZHA send path.
+
+### `ir_formats/`
+
+Pure Python IR conversion helpers with no Home Assistant imports.
+
+The current pipeline is:
+
+```text
+protocol source -> normalized raw timings -> zosung_base64 -> existing send path
+```
+
+The implemented protocol source is Sony SIRC. It expands protocol repeats and
+inter-frame gaps into the raw timing list before Zosung encoding, because the
+TS1201 sends one continuous timing payload per command.
 
 ### `__init__.py`
 
@@ -112,7 +128,9 @@ Saved commands are upserted by the tuple:
 location_id / ir_device_id / command_id
 ```
 
-Command payloads are opaque strings. The integration does not attempt to convert them into a universal IR format.
+Command payloads are opaque strings at runtime. The optional converter layer may
+generate or decode payloads before they are saved, but `send_command` always
+sends the stored `code` as-is.
 
 ## UI Boundary
 
@@ -131,9 +149,9 @@ The card owns user-facing workflows that do not require ZHA access:
 - inline rename actions;
 - command icon selection;
 - device-profile export and import;
-- registry refresh after external changes.
+- a compact diagnostic status indicator.
 
-Profile export/import is a UI-level portability helper. The exported JSON contains one IR device's commands and is imported by calling existing integration services, primarily `save_command` and `update_command`.
+Profile export/import is a UI-level portability helper. The exported JSON contains one IR device's commands and is imported by calling existing integration services, primarily `save_command` and `update_command`. Imported commands may include `source` provenance.
 
 ## Deferred Architecture
 
@@ -145,4 +163,5 @@ The following are intentionally outside the current MVP:
 - Tuya Cloud transport;
 - multiple active transmitters in one UI workflow;
 - automatic IR code database lookup;
+- bundled public IR code database;
 - climate entities.

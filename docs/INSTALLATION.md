@@ -7,7 +7,7 @@ This document describes how to install IR Learning Hub as a local Home Assistant
 - Home Assistant with ZHA enabled.
 - A paired Tuya TS1201 / MOES UFO-R11 IR blaster.
 - The ZHA quirk `zhaquirks.tuya.ts1201.ZosungIRBlaster` active for the device.
-- File access to the Home Assistant configuration directory.
+- File access to the Home Assistant configuration directory only for manual installation.
 
 The currently confirmed device profile uses:
 
@@ -59,31 +59,7 @@ https://github.com/slawa19/IR-Learning-Hub
 
 Use category `Integration`.
 
-HACS should install a GitHub release/tag, not a raw commit SHA. The release version must match the integration version in `manifest.json`. For example, release tag `v0.1.10` must contain:
-
-```json
-"version": "0.1.10"
-```
-
-If HACS shows an error such as `The version fb1af13 for this integration can not be used with HACS`, create or select a release/tag version instead of installing that commit hash.
-
-For a new release, keep these items in sync:
-
-- `custom_components/ir_learning_hub/manifest.json`;
-- `custom_components/ir_learning_hub/www/ir-learning-hub-card.js`;
-- README and installation examples;
-- `CHANGELOG.md`;
-- git tag, for example `v0.1.10`;
-- GitHub Release for that tag.
-
-Create and push a matching semantic tag:
-
-```text
-git tag v0.1.10
-git push origin v0.1.10
-```
-
-Then publish a GitHub Release from the same tag. HACS uses release metadata and tags to show normal versions, release notes, and update notifications.
+Install the latest available release, restart Home Assistant, then add the integration from `Settings -> Devices & services`.
 
 ## Add the Integration
 
@@ -116,7 +92,7 @@ The integration serves the bundled card at:
 Add it as a Lovelace resource:
 
 ```yaml
-url: /ir_learning_hub/ir-learning-hub-card.js?v=10
+url: /ir_learning_hub/ir-learning-hub-card.js?v=11
 type: module
 ```
 
@@ -161,9 +137,9 @@ You can also validate through the Lovelace card:
 1. Update through HACS, or replace the files under `custom_components/ir_learning_hub` for a manual install.
 2. Restart Home Assistant.
 3. Refresh the browser cache if the Lovelace card changed.
-4. Bump the card resource query string if needed, for example `?v=10`.
+4. Bump the card resource query string if needed, for example `?v=11`.
 
-If HACS still shows an older version, reload HACS data, confirm that the GitHub Release exists for the latest tag, and verify that `manifest.json` inside the downloaded release contains the same version.
+If HACS still shows an older version, reload HACS data and check for the latest release again.
 
 ## Uninstalling
 

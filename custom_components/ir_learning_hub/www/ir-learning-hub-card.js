@@ -1,4 +1,4 @@
-const IR_LEARNING_HUB_CARD_VERSION = "0.1.10";
+const IR_LEARNING_HUB_CARD_VERSION = "0.1.11";
 
 class IRLearningHubCard extends HTMLElement {
   constructor() {
@@ -789,14 +789,17 @@ class IRLearningHubCard extends HTMLElement {
     await this._run(async () => {
       let count = 0;
       for (const [cmdId, cmd] of entries) {
-        await this._call("save_command", {
+        const payload = {
           location_id: locId,
           ir_device_id: devId,
           command_id: cmdId,
           name: cmd.name || cmdId,
           code: cmd.code,
           verified: cmd.verified !== false,
-        });
+        };
+        if (cmd.source && typeof cmd.source === "object" && !Array.isArray(cmd.source))
+          payload.source = cmd.source;
+        await this._call("save_command", payload);
         // Only carry icons the backend will accept, so one malformed icon in a
         // hand-edited profile does not abort the rest of the import.
         const icon = typeof cmd.icon === "string" && cmd.icon.startsWith("mdi:") ? cmd.icon : "";
@@ -893,10 +896,7 @@ class IRLearningHubCard extends HTMLElement {
         <div class="header">
           <img class="brand-icon" src="/ir_learning_hub/icon.png" alt="" />
           <span class="title">${this._x(this._config.title || "IR Learning Hub")}</span>
-          <span class="status-dot ${dotClass}"></span>
-          <button class="btn icon-only" data-act="refresh" title="${this._x(this._t("reloadList"))}" aria-label="${this._x(this._t("reloadList"))}">
-            <ha-icon icon="mdi:refresh"></ha-icon>
-          </button>
+          <span class="status-dot ${dotClass}" title="${this._x(this._t("status"))}: ${this._x(state)}" aria-label="${this._x(this._t("status"))}: ${this._x(state)}" role="status"></span>
         </div>
         <div class="body">
           <div class="sidebar">${this._renderSidebar()}</div>
@@ -1023,7 +1023,6 @@ class IRLearningHubCard extends HTMLElement {
     if (pta) pta.addEventListener("input", () => { if (this._panel) this._panel.text = pta.value; });
 
     const acts = {
-      refresh: () => { this._msg = ""; this._err = ""; this._closeEditors(); this._loadRegistry(); },
       closeMenus: () => { this._menu = null; this._render(); },
       renameSave: () => this._renameSave(),
       renameCancel: () => { this._rename = null; this._render(); },
@@ -1090,7 +1089,6 @@ const TRANSLATIONS = {
     invalidJson: "Invalid JSON",
     noCommandsInJson: "No commands found in the JSON",
     pasteJson: "Paste profile JSON here",
-    reloadList: "Reload list",
     rename: "Rename",
     id: "ID",
     idHelper: "Lowercase letters, numbers, and underscores",
@@ -1104,7 +1102,6 @@ const TRANSLATIONS = {
     orCreateNew: "or create a new one",
     pointRemote: "Point the remote at the device",
     pressButtonPrefix: "and press",
-    refresh: "Refresh",
     relearn: "Relearn",
     save: "Save",
     saved: "Saved",
@@ -1116,6 +1113,7 @@ const TRANSLATIONS = {
     sent: "Sent",
     sentToDevice: "Sent to device",
     skip: "Skip",
+    status: "Status",
     stepRecord: "Step 1 of 3 · Record",
     stepSave: "Step 3 of 3 · Save",
     stepTest: "Step 2 of 3 · Test",
@@ -1155,7 +1153,6 @@ const TRANSLATIONS = {
     invalidJson: "Некорректный JSON",
     noCommandsInJson: "В JSON нет команд",
     pasteJson: "Вставьте JSON профиля сюда",
-    reloadList: "Обновить список",
     rename: "Переименовать",
     id: "ID",
     idHelper: "Строчные латинские буквы, цифры и подчёркивания",
@@ -1169,7 +1166,6 @@ const TRANSLATIONS = {
     orCreateNew: "или создайте новое",
     pointRemote: "Направьте пульт на устройство",
     pressButtonPrefix: "и нажмите",
-    refresh: "Обновить",
     relearn: "Перезаписать",
     save: "Сохранить",
     saved: "Сохранено",
@@ -1181,6 +1177,7 @@ const TRANSLATIONS = {
     sent: "Отправлено",
     sentToDevice: "Отправлено на устройство",
     skip: "Пропустить",
+    status: "Статус",
     stepRecord: "Шаг 1 из 3 · Запись",
     stepSave: "Шаг 3 из 3 · Сохранение",
     stepTest: "Шаг 2 из 3 · Проверка",
@@ -1220,7 +1217,6 @@ const TRANSLATIONS = {
     invalidJson: "Некоректний JSON",
     noCommandsInJson: "У JSON немає команд",
     pasteJson: "Вставте JSON профілю сюди",
-    reloadList: "Оновити список",
     rename: "Перейменувати",
     id: "ID",
     idHelper: "Малі латинські літери, цифри та підкреслення",
@@ -1234,7 +1230,6 @@ const TRANSLATIONS = {
     orCreateNew: "або створіть новий",
     pointRemote: "Спрямуйте пульт на пристрій",
     pressButtonPrefix: "і натисніть",
-    refresh: "Оновити",
     relearn: "Перезаписати",
     save: "Зберегти",
     saved: "Збережено",
@@ -1246,6 +1241,7 @@ const TRANSLATIONS = {
     sent: "Надіслано",
     sentToDevice: "Надіслано на пристрій",
     skip: "Пропустити",
+    status: "Статус",
     stepRecord: "Крок 1 з 3 · Запис",
     stepSave: "Крок 3 з 3 · Збереження",
     stepTest: "Крок 2 з 3 · Перевірка",

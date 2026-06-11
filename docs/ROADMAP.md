@@ -15,6 +15,9 @@ This roadmap describes the intended direction of the project. It is not a releas
 - Command icons and metadata updates without relearning.
 - Device-profile export and import through the Lovelace card.
 - HACS release metadata, repository icon assets, and release-based installation.
+- Internal raw timing model and Zosung encoder/decoder.
+- Sony SIRC generation through `generate_code`, validated on Sony STR-DB840 power control.
+- Local utility for generating a Sony STR-DB840 card-import profile.
 
 ## MVP Hardening
 
@@ -31,6 +34,7 @@ This roadmap describes the intended direction of the project. It is not a releas
 - Optional Zigbee2MQTT transport adapter.
 - Better handling for repeated-frame or long-press remote protocols.
 - Device-type templates for common media commands.
+- Additional protocol generators and importers such as Pronto Hex, raw timings, and LIRC `raw_codes`.
 
 ## Non-Goals for the Current Architecture
 
