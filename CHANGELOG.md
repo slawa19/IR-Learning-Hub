@@ -8,6 +8,16 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.1.10 - 2026-06-11
+
+### Fixed
+
+- Profile import now ignores malformed command icons instead of aborting the import. Valid `mdi:*` icons are still imported.
+
+### Changed
+
+- Installation docs now describe the card icon lookup order: integration root `icon.png`, then `brand/icon.png` fallback.
+
 ## 0.1.9 - 2026-06-10
 
 ### Changed

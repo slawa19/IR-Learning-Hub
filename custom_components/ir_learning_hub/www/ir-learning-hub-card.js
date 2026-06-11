@@ -1,4 +1,4 @@
-const IR_LEARNING_HUB_CARD_VERSION = "0.1.9";
+const IR_LEARNING_HUB_CARD_VERSION = "0.1.10";
 
 class IRLearningHubCard extends HTMLElement {
   constructor() {
@@ -797,10 +797,13 @@ class IRLearningHubCard extends HTMLElement {
           code: cmd.code,
           verified: cmd.verified !== false,
         });
-        if (cmd.icon)
+        // Only carry icons the backend will accept, so one malformed icon in a
+        // hand-edited profile does not abort the rest of the import.
+        const icon = typeof cmd.icon === "string" && cmd.icon.startsWith("mdi:") ? cmd.icon : "";
+        if (icon)
           await this._call("update_command", {
             location_id: locId, ir_device_id: devId,
-            command_id: cmdId, icon: cmd.icon,
+            command_id: cmdId, icon,
           });
         count++;
       }
