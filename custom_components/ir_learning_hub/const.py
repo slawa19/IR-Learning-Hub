@@ -4,6 +4,8 @@ from __future__ import annotations
 
 DOMAIN = "ir_learning_hub"
 
+SIGNAL_REGISTRY_UPDATED = f"{DOMAIN}_registry_updated"
+
 CONF_CLUSTER_ID = "cluster_id"
 CONF_ENDPOINT_ID = "endpoint_id"
 CONF_IEEE = "ieee"
@@ -52,6 +54,17 @@ SERVICE_SAVE_COMMAND = "save_command"
 SERVICE_SEND_COMMAND = "send_command"
 SERVICE_TEST_CODE = "test_code"
 SERVICE_UPDATE_COMMAND = "update_command"
+SERVICE_UPDATE_DEVICE = "update_device"
+
+FIELD_IR_DEVICE_ID = "ir_device_id"
+FIELD_LOCATION_ID = "location_id"
+FIELD_NAME = "name"
+FIELD_PREFERRED_DOMAIN = "preferred_domain"
+FIELD_TRANSMITTER_ID = "transmitter_id"
+FIELD_TYPE = "type"
+
+PREFERRED_DOMAIN_AUTO = "auto"
+PREFERRED_DOMAINS = ("auto", "media_player", "remote", "switch")
 
 STATUS_CODE_RECEIVED = "code_received"
 STATUS_ERROR = "error"

@@ -39,11 +39,13 @@ from .const import (
     SERVICE_SEND_COMMAND,
     SERVICE_TEST_CODE,
     SERVICE_UPDATE_COMMAND,
+    SERVICE_UPDATE_DEVICE,
     STATUS_CODE_RECEIVED,
     STATUS_ERROR,
     STATUS_IDLE,
     STATUS_LEARNING,
     STATUS_SENDING,
+    PREFERRED_DOMAINS,
 )
 from .errors import IRLearningHubError
 from .ir_formats import (
@@ -74,6 +76,7 @@ FIELD_IR_DEVICE_ID = "ir_device_id"
 FIELD_LOCATION_ID = "location_id"
 FIELD_NAME = "name"
 FIELD_POLL_INTERVAL = "poll_interval"
+FIELD_PREFERRED_DOMAIN = "preferred_domain"
 FIELD_PROTOCOL = "protocol"
 FIELD_REPEATS = "repeats"
 FIELD_SOURCE = "source"
@@ -103,6 +106,11 @@ def _non_empty_string(value: str) -> str:
     return value
 
 
+def _optional_string(value: str) -> str:
+    """Validate an optional service string that may be empty to clear it."""
+    return cv.string(value).strip()
+
+
 def _icon_schema(value: str) -> str:
     """Validate a Material Design icon name or an empty string to clear it."""
     value = cv.string(value).strip()
@@ -118,6 +126,19 @@ def _command_update_schema(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _device_update_schema(value: dict[str, Any]) -> dict[str, Any]:
+    """Require update_device to change at least one device metadata field."""
+    update_fields = {
+        FIELD_NAME,
+        FIELD_TYPE,
+        FIELD_PREFERRED_DOMAIN,
+        FIELD_TRANSMITTER_ID,
+    }
+    if not update_fields & value.keys():
+        raise vol.Invalid("At least one device field is required")
+    return value
+
+
 OPTIONAL_TRANSMITTER = {vol.Optional(FIELD_TRANSMITTER_ID): _non_empty_string}
 LOCATION_SCHEMA = {
     vol.Required(FIELD_LOCATION_ID): _id_schema,
@@ -128,6 +149,8 @@ DEVICE_SCHEMA = {
     vol.Required(FIELD_IR_DEVICE_ID): _id_schema,
     vol.Required(FIELD_NAME): _non_empty_string,
     vol.Optional(FIELD_TYPE, default="generic"): _non_empty_string,
+    vol.Optional(FIELD_PREFERRED_DOMAIN): vol.In(PREFERRED_DOMAINS),
+    vol.Optional(FIELD_TRANSMITTER_ID): _optional_string,
 }
 COMMAND_SCHEMA = {
     vol.Required(FIELD_LOCATION_ID): _id_schema,
@@ -196,6 +219,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_ADD_DEVICE,
         SERVICE_ADD_COMMAND,
         SERVICE_UPDATE_COMMAND,
+        SERVICE_UPDATE_DEVICE,
         SERVICE_RENAME_LOCATION,
         SERVICE_RENAME_DEVICE,
         SERVICE_RENAME_COMMAND,
@@ -524,10 +548,30 @@ def _register_services(hass: HomeAssistant) -> None:
                 call.data[FIELD_IR_DEVICE_ID],
                 call.data[FIELD_NAME],
                 call.data[FIELD_TYPE],
+                call.data.get(FIELD_PREFERRED_DOMAIN),
+                call.data.get(FIELD_TRANSMITTER_ID) or None,
             )
             return {"status": "saved"}
 
         return await run_service(SERVICE_ADD_DEVICE, action, data=call.data)
+
+    async def update_device(call: ServiceCall) -> dict[str, str]:
+        async def action() -> dict[str, str]:
+            await store.update_device(
+                call.data[FIELD_LOCATION_ID],
+                call.data[FIELD_IR_DEVICE_ID],
+                name=call.data.get(FIELD_NAME),
+                device_type=call.data.get(FIELD_TYPE),
+                preferred_domain=call.data.get(FIELD_PREFERRED_DOMAIN),
+                transmitter_id=(
+                    call.data[FIELD_TRANSMITTER_ID]
+                    if FIELD_TRANSMITTER_ID in call.data
+                    else None
+                ),
+            )
+            return {"status": "saved"}
+
+        return await run_service(SERVICE_UPDATE_DEVICE, action, data=call.data)
 
     async def add_command(call: ServiceCall) -> dict[str, str]:
         async def action() -> dict[str, str]:
@@ -757,6 +801,25 @@ def _register_services(hass: HomeAssistant) -> None:
                 }
             ),
             _command_update_schema,
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_DEVICE,
+        update_device,
+        schema=vol.All(
+            vol.Schema(
+                {
+                    vol.Required(FIELD_LOCATION_ID): _id_schema,
+                    vol.Required(FIELD_IR_DEVICE_ID): _id_schema,
+                    vol.Optional(FIELD_NAME): _non_empty_string,
+                    vol.Optional(FIELD_TYPE): _non_empty_string,
+                    vol.Optional(FIELD_PREFERRED_DOMAIN): vol.In(PREFERRED_DOMAINS),
+                    vol.Optional(FIELD_TRANSMITTER_ID): _optional_string,
+                }
+            ),
+            _device_update_schema,
         ),
         supports_response=SupportsResponse.OPTIONAL,
     )

@@ -258,7 +258,27 @@
         "type": {
           "name": "Type",
           "description": "Device type, such as tv or air_conditioner."
+        },
+        "preferred_domain": {
+          "name": "Preferred domain",
+          "description": "Preferred Home Assistant platform for this IR device. Auto lets the integration infer it from type and commands."
+        },
+        "transmitter_id": {
+          "name": "Transmitter ID",
+          "description": "Optional normalized transmitter ID to use for this IR device."
         }
+      }
+    },
+    "update_device": {
+      "name": "Update IR device",
+      "description": "Update an IR device's metadata without changing its commands.",
+      "fields": {
+        "location_id": { "name": "Location ID", "description": "Identifier of the location the device belongs to." },
+        "ir_device_id": { "name": "IR device ID", "description": "Identifier of the IR device to update." },
+        "name": { "name": "Name", "description": "New device name." },
+        "type": { "name": "Type", "description": "New device type." },
+        "preferred_domain": { "name": "Preferred domain", "description": "Preferred Home Assistant platform for this IR device." },
+        "transmitter_id": { "name": "Transmitter ID", "description": "Optional normalized transmitter ID. Leave empty to clear." }
       }
     },
     "add_command": {

@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -16,12 +17,16 @@ from .const import (
     ERROR_TRANSMITTER_NOT_CONFIGURED,
     ERROR_TRANSMITTER_REQUIRED,
     ERROR_TRANSMITTER_UNAVAILABLE,
+    PREFERRED_DOMAIN_AUTO,
+    PREFERRED_DOMAINS,
+    SIGNAL_REGISTRY_UPDATED,
 )
 from .device_profiles import get_profile
 from .errors import IRLearningHubError
+from .storage_migration import migrate_v1_to_v2
 
 STORAGE_KEY = "ir_learning_hub"
-STORAGE_VERSION = 1
+STORAGE_VERSION = 2
 ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
@@ -42,12 +47,36 @@ def _validate_id(value: str, field: str) -> None:
         )
 
 
+def _validate_preferred_domain(value: str) -> None:
+    if value not in PREFERRED_DOMAINS:
+        raise IRLearningHubError(
+            ERROR_STORAGE_ERROR,
+            f"preferred_domain must be one of: {', '.join(PREFERRED_DOMAINS)}",
+        )
+
+
+class IRRegistryDataStore(Store):
+    """Store with additive registry migrations."""
+
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,
+        old_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Migrate old registry data to the current schema."""
+        if old_major_version < 2:
+            return migrate_v1_to_v2(old_data)
+        return old_data
+
+
 class IRRegistryStore:
     """Store-backed IR command registry."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the store."""
-        self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        self._hass = hass
+        self._store = IRRegistryDataStore(hass, STORAGE_VERSION, STORAGE_KEY)
         self.data: dict[str, Any] = _default_data()
 
     async def async_load(self) -> None:
@@ -57,6 +86,9 @@ class IRRegistryStore:
             self.data = _default_data()
             return
 
+        if stored.get("version", 1) < STORAGE_VERSION:
+            stored = migrate_v1_to_v2(stored)
+
         self.data = _default_data() | stored
         self.data.setdefault("transmitters", {})
         self.data.setdefault("locations", {})
@@ -64,6 +96,7 @@ class IRRegistryStore:
     async def async_save(self) -> None:
         """Persist registry data."""
         await self._store.async_save(self.data)
+        async_dispatcher_send(self._hass, SIGNAL_REGISTRY_UPDATED)
 
     async def async_upsert_transmitter_from_entry(self, entry_data: dict[str, Any]) -> str:
         """Ensure the configured transmitter exists in registry storage."""
@@ -149,24 +182,68 @@ class IRRegistryStore:
         await self.async_save()
 
     async def add_device(
-        self, location_id: str, ir_device_id: str, name: str, device_type: str
+        self,
+        location_id: str,
+        ir_device_id: str,
+        name: str,
+        device_type: str,
+        preferred_domain: str | None = None,
+        transmitter_id: str | None = None,
     ) -> None:
         """Add or update an IR device."""
         _validate_id(location_id, "location_id")
         _validate_id(ir_device_id, "ir_device_id")
+        if preferred_domain is not None:
+            _validate_preferred_domain(preferred_domain)
         location = self.data["locations"].setdefault(
             location_id, {"name": location_id, "devices": {}}
         )
         device = location["devices"].setdefault(
-            ir_device_id, {"name": name, "type": device_type, "commands": {}}
+            ir_device_id,
+            {
+                "name": name,
+                "type": device_type,
+                "preferred_domain": preferred_domain or PREFERRED_DOMAIN_AUTO,
+                "transmitter_id": transmitter_id,
+                "commands": {},
+            },
         )
         device["name"] = name
         device["type"] = device_type
+        device.setdefault("preferred_domain", PREFERRED_DOMAIN_AUTO)
+        device.setdefault("transmitter_id", None)
+        if preferred_domain is not None:
+            device["preferred_domain"] = preferred_domain
+        if transmitter_id is not None:
+            device["transmitter_id"] = transmitter_id or None
         await self.async_save()
 
     async def rename_device(self, location_id: str, ir_device_id: str, name: str) -> None:
         """Rename an IR device."""
         self._device(location_id, ir_device_id)["name"] = name
+        await self.async_save()
+
+    async def update_device(
+        self,
+        location_id: str,
+        ir_device_id: str,
+        *,
+        name: str | None = None,
+        device_type: str | None = None,
+        preferred_domain: str | None = None,
+        transmitter_id: str | None = None,
+    ) -> None:
+        """Update an IR device's metadata."""
+        device = self._device(location_id, ir_device_id)
+        if name is not None:
+            device["name"] = name
+        if device_type is not None:
+            device["type"] = device_type
+        if preferred_domain is not None:
+            _validate_preferred_domain(preferred_domain)
+            device["preferred_domain"] = preferred_domain
+        if transmitter_id is not None:
+            device["transmitter_id"] = transmitter_id or None
         await self.async_save()
 
     async def delete_device(
@@ -239,7 +316,13 @@ class IRRegistryStore:
         )
         device = location["devices"].setdefault(
             ir_device_id,
-            {"name": ir_device_id, "type": "generic", "commands": {}},
+            {
+                "name": ir_device_id,
+                "type": "generic",
+                "preferred_domain": PREFERRED_DOMAIN_AUTO,
+                "transmitter_id": None,
+                "commands": {},
+            },
         )
         existing = device["commands"].get(command_id, {})
         command = {

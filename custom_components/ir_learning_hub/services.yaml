@@ -179,6 +179,46 @@ add_device:
       default: generic
       selector:
         text:
+    preferred_domain:
+      default: auto
+      selector:
+        select:
+          options:
+            - auto
+            - media_player
+            - remote
+            - switch
+    transmitter_id:
+      selector:
+        text:
+
+update_device:
+  fields:
+    location_id:
+      required: true
+      selector:
+        text:
+    ir_device_id:
+      required: true
+      selector:
+        text:
+    name:
+      selector:
+        text:
+    type:
+      selector:
+        text:
+    preferred_domain:
+      selector:
+        select:
+          options:
+            - auto
+            - media_player
+            - remote
+            - switch
+    transmitter_id:
+      selector:
+        text:
 
 add_command:
   fields:
