@@ -58,7 +58,7 @@ from .status import HubStatus
 from .storage import IRRegistryStore
 from .zha_adapter import ZHAAdapter
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.INFRARED]
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_URL = "/ir_learning_hub/ir-learning-hub-card.js"
 FRONTEND_ICON_URL = "/ir_learning_hub/icon.png"

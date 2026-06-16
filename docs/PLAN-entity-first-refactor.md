@@ -460,17 +460,21 @@ Designed so each PR is independently reviewable/mergeable and the risky unknown
 is resolved first. PRs 1–3 can be squashed into one branch if the maintainer
 prefers a single review.
 
-**Progress:** PR0 ✅ closed (see "Spike results"). PR1 ✅ merged on
-`feat/entity-first-pr0-pr1` — 22 unit tests passing, scope/boundaries verified
-(`PLATFORMS` still `[Platform.SENSOR]`, no entity modules, `zha_adapter.py`
-untouched). PR2 is next.
+**Progress:** PR0 ✅ closed (see "Spike results"). PR1 ✅ merged. PR2 ✅ reviewed
+& accepted on `feat/entity-first-pr0-pr1` — `ir_command.py` (`ZosungCommand`),
+`infrared.py` (one emitter per entry; DeviceInfo child-model
+`identifiers={(DOMAIN, transmitter_id)}` + `via_device=("zha", ieee)`),
+`PLATFORMS = [Platform.SENSOR, Platform.INFRARED]`, manifest `["zha","infrared"]`.
+`ZosungCommand` verified against installed `infrared-protocols==6.0.1` (27 tests
+in `.venv314`). Entity layer not import-tested locally (HA 2026.6.3 needs Python
+3.14) → real-HA smoke test owed in PR3. PR3 is next.
 
 | PR | Title | Scope | Tests |
 |----|-------|-------|-------|
 | **PR0 (spike)** ✅ | Infrared platform fit | Step 0 verification; results + chosen routing path recorded below. | n/a |
 | **PR1** ✅ | Storage foundation | Step 1: store v2 migration via `_async_migrate_func`, `preferred_domain`/`transmitter_id` fields + `add_device`/`update_device` write path, `{DOMAIN}_registry_updated` dispatcher, `capabilities.py` (inference + alias map). No new entities. | Migration v1→v2; capability inference; alias normalization; new fields persisted via service. |
-| **PR2** ⬜ | Infrared emitter platform | Step 2: `Platform.INFRARED`, `infrared.py` `InfraredEmitterEntity` wrapping `ZHAAdapter`, `ZosungCommand(Command)`, manifest `["zha","infrared"]`. | Emitter send forwards to adapter; one emitter per transmitter; `ZosungCommand` carries opaque code. |
-| **PR3** | Consumer entity layer | Steps 3–6: `registry_runtime.py` diff helper + per-platform `media_player.py`/`remote.py`/optional `switch.py`; DeviceInfo + `via_device`; single-owner config entry **+ unload/owner re-election**; dynamic add/remove; RestoreEntity + assumed/optimistic state; honest media_player off-semantics; Assist-friendly metadata. | Materialization; dynamic add/remove; command_id mapping; remote send + `HomeAssistantError`; state transitions; primary-unload transition. |
+| **PR2** ✅ | Infrared emitter platform | Step 2: `Platform.INFRARED`, `infrared.py` `InfraredEmitterEntity` wrapping `ZHAAdapter`, `ZosungCommand(Command)`, manifest `["zha","infrared"]`. | Emitter send forwards to adapter; one emitter per transmitter; `ZosungCommand` carries opaque code. |
+| **PR3** ⬜ | Consumer entity layer | Steps 3–6: `registry_runtime.py` diff helper + per-platform `media_player.py`/`remote.py`/optional `switch.py`; DeviceInfo + `via_device`; single-owner config entry **+ unload/owner re-election**; dynamic add/remove; RestoreEntity + assumed/optimistic state; honest media_player off-semantics; Assist-friendly metadata. **+ real-HA smoke test for the PR2 emitter (DeviceInfo/via_device/send).** | Materialization; dynamic add/remove; command_id mapping; remote send + `HomeAssistantError`; state transitions; primary-unload transition. |
 | **PR4** | Docs + back-compat hardening | Update `ARCHITECTURE.md`, `SERVICES.md`, `README.md` (incl. Assist "expose new entities" note), `ROADMAP.md`; back-compat service tests; final PR-description deliverable. | Services still resolve/send post-refactor. |
 
 ### File map (added / changed)
@@ -486,8 +490,15 @@ untouched). PR2 is next.
 - **Unchanged transport:** `zha_adapter.py`, `ir_formats/*`, `device_profiles.py`
   (extend profiles only if Step 0 requires a decoder).
 
-### Carried-over notes from the PR1 review (address in PR2/PR3)
+### Carried-over notes from the PR1/PR2 review (address in PR3)
 
+- **(PR2) Verify the `via_device=("zha", ieee)` IEEE form** matches ZHA's device
+  identifier exactly (lowercase colon form per `zha_adapter.py:36-37`). If it
+  mismatches, the emitter device is created standalone (soft failure, no
+  duplicate) but won't nest under the TS1201 — confirm in the real-HA smoke test.
+- **(PR2) Emitter entity layer is unverified locally** (HA needs Python 3.14;
+  `.venv314` exists). Real-HA smoke test owed: emitter appears, nests under the
+  TS1201 device, and a test send goes through `ZHAAdapter`.
 - **`transmitter_id` is stored but not validated against known transmitters**
   (`add_device`/`update_device`). The send path / `resolve_transmitter` must
   handle a stale or unknown `transmitter_id` gracefully — clear error or fall
@@ -591,3 +602,22 @@ Residual nit to confirm while coding PR2 (non-blocking): the exact `Command`
 base `__init__` / required fields in `infrared-protocols==6.0.1` (so the
 `ZosungCommand` subclass constructs cleanly). Read from the installed package
 during PR2.
+
+PR2 nit confirmed from installed `infrared-protocols==6.0.1`:
+`Command.__init__(self, *, modulation: int, repeat_count: int = 0) -> None`.
+Required field: `modulation`; stored fields: `modulation`, `repeat_count`.
+`get_raw_timings()` remains abstract, but HA's infrared emitter send path calls
+our `InfraredEmitterEntity.async_send_command(command)` and does not call
+`get_raw_timings()`.
+
+PR2 DeviceInfo decision: the emitter uses its own HA device entry with
+`identifiers={(DOMAIN, transmitter_id)}` and `via_device=("zha", ieee)` instead
+of claiming the ZHA identifier directly. This avoids metadata churn on the ZHA
+TS1201 device while preserving the explicit device graph relation.
+
+PR2/PR3 test harness note: Python 3.14.6 and `.venv314` are now available with
+`homeassistant==2026.6.3`, `infrared-protocols==6.0.1`, and
+`pytest-homeassistant-custom-component`. PR2 still keeps only pure command tests;
+PR3 must add a real-HA smoke/entity test that verifies the emitter appears,
+uses the intended device relation, and routes `ZosungCommand` to
+`ZHAAdapter.async_send`.
