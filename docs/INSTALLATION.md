@@ -4,7 +4,7 @@ This document describes how to install IR Learning Hub as a local Home Assistant
 
 ## Requirements
 
-- Home Assistant with ZHA enabled.
+- Home Assistant 2026.6.0 or newer with ZHA enabled.
 - A paired Tuya TS1201 / MOES UFO-R11 IR blaster.
 - The ZHA quirk `zhaquirks.tuya.ts1201.ZosungIRBlaster` active for the device.
 - File access to the Home Assistant configuration directory only for manual installation.
@@ -60,6 +60,12 @@ https://github.com/slawa19/IR-Learning-Hub
 Use category `Integration`.
 
 Install the latest available release, restart Home Assistant, then add the integration from `Settings -> Devices & services`.
+
+For the entity-first release, install `v0.2.0` or newer. The integration manifest should contain:
+
+```json
+{ "version": "0.2.0" }
+```
 
 ## Add the Integration
 
@@ -134,11 +140,60 @@ You can also validate through the Lovelace card:
 
 ## Updating
 
-1. Update through HACS, or replace the files under `custom_components/ir_learning_hub` for a manual install.
-2. Restart Home Assistant.
-3. Reload the dashboard in the browser.
+### HACS update to `v0.2.0`
+
+1. In HACS, open `IR Learning Hub`.
+2. Install release `v0.2.0` or newer.
+3. Restart Home Assistant.
+4. Reload the dashboard in the browser.
+5. Open `Settings -> Devices & services -> Entities` and verify the new entities.
 
 If HACS still shows an older version, reload HACS data and check for the latest release again.
+
+### Manual update to `v0.2.0`
+
+1. Download or checkout tag `v0.2.0`.
+2. Replace the files under:
+
+   ```text
+   <ha_config>/custom_components/ir_learning_hub
+   ```
+
+3. Confirm the installed manifest says:
+
+   ```json
+   { "version": "0.2.0" }
+   ```
+
+4. Restart Home Assistant.
+5. Reload the dashboard in the browser.
+
+### Post-update validation
+
+After updating from `0.1.x` to `0.2.0`, check:
+
+1. The existing status sensor still exists:
+
+   ```text
+   sensor.ir_learning_hub_status
+   ```
+
+2. Each configured TS1201 transmitter has a native `infrared` entity.
+3. Each registry IR device has a native `remote` entity.
+4. Existing services still work, especially:
+
+   ```text
+   ir_learning_hub.send_command
+   ir_learning_hub.test_code
+   ```
+
+5. If you use Assist or an LLM assistant, expose the new `remote` entities in:
+
+   ```text
+   Settings -> Voice assistants -> Expose
+   ```
+
+The integration does not force Assist exposure. Home Assistant's exposure policy stays in control.
 
 ## Uninstalling
 

@@ -2,7 +2,7 @@
 
 IR Learning Hub is a local Home Assistant custom integration for learning, generating, storing, testing, organizing, exporting, importing, and replaying infrared commands through a ZHA-connected Tuya TS1201 / MOES UFO-R11 IR blaster.
 
-It turns the TS1201 from a low-level ZHA device into a usable remote-control hub: learn a button from a physical remote, test it, save it under a stable command ID, replay it from Home Assistant services, and manage the command library from a Lovelace card.
+It turns the TS1201 from a low-level ZHA device into a usable remote-control hub: learn a button from a physical remote, test it, save it under a stable command ID, replay it from Home Assistant services or native `remote` entities, and manage the command library from a Lovelace card.
 
 The integration is intentionally local-first. It uses Home Assistant's native ZHA runtime and does not require Tuya Cloud, Smart Life, Zigbee2MQTT, SmartIR, IR Wrapper, scripts, or helper entities for the main command path.
 
@@ -15,6 +15,8 @@ The integration is intentionally local-first. It uses Home Assistant's native ZH
 - Stores verified commands in Home Assistant storage.
 - Organizes commands as `Location -> IR device -> Command`.
 - Exposes a stable Home Assistant service API for automations, scripts, and Developer Tools.
+- Exposes each configured TS1201 as a native Home Assistant `infrared` emitter entity.
+- Exposes registry IR devices as native Home Assistant `remote` entities that send through the emitter.
 - Provides a bundled Lovelace card for day-to-day use.
 - Supports command rename, relearn, delete, and optional `mdi:*` icons without replacing the stored IR code.
 - Exports and imports one device profile as JSON, so a command set can be moved to another logical remote without relearning.
@@ -22,7 +24,15 @@ The integration is intentionally local-first. It uses Home Assistant's native ZH
 
 ## Current State
 
-IR Learning Hub is a functional Home Assistant custom integration for the confirmed TS1201 / MOES UFO-R11 ZHA path.
+IR Learning Hub `v0.2.0` is a functional Home Assistant custom integration for the confirmed TS1201 / MOES UFO-R11 ZHA path.
+
+Release metadata:
+
+```json
+{ "version": "0.2.0" }
+```
+
+Current release tag: `v0.2.0`.
 
 The implemented flow covers the full command lifecycle:
 
@@ -31,12 +41,14 @@ The implemented flow covers the full command lifecycle:
 3. Learn a command from a physical remote.
 4. Test the captured IR code.
 5. Save it with a stable ID and display name.
-6. Replay it from the Lovelace card, Home Assistant services, automations, or scripts.
+6. Replay it from the Lovelace card, Home Assistant services, automations, scripts, or the generated `remote` entity.
 7. Maintain the library with rename, relearn, icon, delete, export, and import actions.
 
 Saved commands survive Home Assistant restarts because they are stored through Home Assistant's `Store` API. The TS1201's last-learned-code attribute is volatile, so `read_last_code` can return `code_empty` after a restart until a new button is learned. This does not affect already saved commands.
 
-The integration currently targets one confirmed hardware/profile combination. The architecture keeps the transport layer isolated so additional ZHA IR transmitter profiles can be added later without changing the registry or UI model.
+The integration currently targets one confirmed hardware/profile combination. The architecture keeps the transport layer isolated so additional ZHA IR transmitter profiles can be added later without changing the registry, UI model, or entity projection.
+
+`media_player` and `switch` entities are not shipped yet. The current entity-first release exposes the physical emitter plus generic `remote` entities; media-player and switch projections are planned as follow-up work.
 
 ## Supported Hardware
 
@@ -101,6 +113,7 @@ IR Learning Hub exposes services under the `ir_learning_hub` domain:
 - `list_commands`
 - `add_location`
 - `add_device`
+- `update_device`
 - `add_command`
 - `update_command`
 - `rename_location`
@@ -111,6 +124,35 @@ IR Learning Hub exposes services under the `ir_learning_hub` domain:
 - `delete_command`
 
 The Lovelace card is built on top of the same services that automations and scripts can use.
+
+## Native Entities
+
+Starting with `v0.2.0`, IR Learning Hub also creates Home Assistant entities:
+
+- one `infrared` emitter entity for each configured TS1201 transmitter;
+- one `remote` entity for each registry IR device that resolves to the remote domain.
+
+The send path is:
+
+```text
+remote entity -> Home Assistant infrared helper -> IR Learning Hub emitter -> ZHA TS1201 transport
+```
+
+Consumer entities do not call ZHA directly. They resolve a stored `command_id`, wrap the stored `zosung_base64` code, and send it through the emitter entity.
+
+Use the usual Home Assistant `remote.turn_on`, `remote.turn_off`, `remote.toggle`, and `remote.send_command` services. `remote.send_command` expects stored `command_id` values, not display labels.
+
+Power state is assumed because IR has no feedback channel. A device with only `power_toggle` can become out of sync if it is changed outside Home Assistant.
+
+### Assist and Voice Exposure
+
+The entities are registered normally and can be exposed to Assist, voice assistants, and the LLM API. Exposure is controlled by Home Assistant:
+
+```text
+Settings -> Voice assistants -> Expose
+```
+
+Enable exposure for the new `remote` entities, or enable Home Assistant's "expose new entities automatically" option for the assistant you use. The integration does not force exposure.
 
 Example saved-command replay:
 
@@ -136,7 +178,7 @@ Add this repository as a HACS custom repository with category `Integration`:
 https://github.com/slawa19/IR-Learning-Hub
 ```
 
-Install the latest available release, then restart Home Assistant.
+Install release `v0.2.0` or newer, then restart Home Assistant.
 
 ### Lovelace Resource
 
@@ -148,6 +190,13 @@ type: module
 ```
 
 After updating the integration, restart Home Assistant. The card script is served without long-lived cache headers, so the browser should pick up the new version without changing the resource URL.
+
+For live systems updating from `0.1.x` to `0.2.0`, verify after restart that:
+
+1. the existing `sensor.ir_learning_hub_status` still exists;
+2. each configured TS1201 has an `infrared` entity;
+3. each registry IR device has a `remote` entity;
+4. existing `ir_learning_hub.*` services still send saved commands.
 
 ## Basic Usage
 
@@ -169,6 +218,13 @@ Service-only flow:
 3. Use the returned `code` with `ir_learning_hub.test_code`.
 4. If the target device responds, save it with `ir_learning_hub.save_command` and `verified: true`.
 5. Replay the saved command with `ir_learning_hub.send_command`.
+
+Native remote entity flow:
+
+1. Create or import a registry IR device and commands.
+2. Restart or wait for the registry update signal to materialize the `remote` entity.
+3. Use `remote.send_command` with a saved `command_id`, for example `power_toggle`.
+4. Optionally expose the remote entity to Assist in Home Assistant voice settings.
 
 Example `save_command` data:
 
@@ -258,14 +314,19 @@ SmartIR-compatible export and additional transmitter transports may be considere
 ## Repository Layout
 
 ```text
-custom_components/ir_learning_hub/
+	custom_components/ir_learning_hub/
 	__init__.py              # integration setup, services, frontend paths
 	brand/                   # integration brand assets
+	capabilities.py          # pure command capability inference helpers
 	config_flow.py           # setup flow and ZHA transmitter discovery
 	const.py                 # constants and service names
 	device_profiles.py       # supported transmitter profile definitions
 	errors.py                # localized integration error type
 	icon.png                 # local Home Assistant integration icon
+	infrared.py              # infrared emitter entity platform
+	ir_command.py            # opaque Zosung command wrapper
+	registry_runtime.py      # pure registry-to-entity projection helpers
+	remote.py                # registry-backed remote consumer entities
 	sensor.py                # diagnostic status sensor platform
 	services.yaml            # service field structure for Home Assistant
 	status.py                # in-memory status model

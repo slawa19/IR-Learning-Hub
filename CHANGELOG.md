@@ -8,6 +8,28 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.2.0 - 2026-06-16
+
+### Added
+
+- Added the Home Assistant `infrared` emitter platform: each configured TS1201 transmitter now appears as an infrared emitter entity.
+- Added registry-backed `remote` consumer entities for stored IR devices, controlled through Home Assistant's infrared helper path.
+- Added entity-first storage foundations: registry v2 migration, `preferred_domain`, `transmitter_id`, and registry update dispatcher signals.
+- Added command capability inference and canonical command-id alias normalization.
+- Added `update_device` so device metadata, preferred domain, and transmitter assignment can be changed through services.
+
+### Changed
+
+- The integration now depends on Home Assistant's native `infrared` integration and requires Home Assistant 2026.6 or newer.
+- Consumer entities route through the emitter entity and never import or call the ZHA adapter directly.
+- Config-entry ownership now keeps consumer entities on a single owner entry and schedules a reload when ownership moves.
+
+### Notes
+
+- `media_player` and `switch` consumer entities are intentionally deferred to the next iteration; this release exposes the emitter and generic `remote` entities first.
+- Assist/LLM exposure remains Home Assistant policy controlled. Enable entity exposure in Home Assistant voice assistant settings if you want new IR remotes available to Assist.
+- A full real-HA smoke test with one and two transmitters is still required before building the next consumer-domain layer.
+
 ## 0.1.13 - 2026-06-11
 
 ### Fixed

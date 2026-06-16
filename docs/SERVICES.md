@@ -208,6 +208,32 @@ Returns:
 status: sent
 ```
 
+## Native Remote Entities
+
+Starting with `v0.2.0`, registry IR devices are also exposed as Home Assistant
+`remote` entities.
+
+Use Home Assistant's normal remote services:
+
+```yaml
+service: remote.send_command
+target:
+  entity_id: remote.living_room_tv
+data:
+  command: power_toggle
+```
+
+`command` must be a stored `command_id`, such as `power_toggle`,
+`volume_up`, or `source_hdmi_1`. Display names are not used for command
+resolution.
+
+The entity send path goes through the Home Assistant infrared helper and the IR
+Learning Hub emitter entity. It does not call ZHA directly from the consumer
+entity.
+
+Remote power state is assumed. With only `power_toggle`, Home Assistant cannot
+know whether the physical device is truly on or off after manual changes.
+
 ## Registry Management
 
 ### `ir_learning_hub.list_commands`
@@ -255,7 +281,39 @@ location_id: cabinet
 ir_device_id: cd_player
 name: CD Player
 type: generic
+preferred_domain: remote
+transmitter_id: "0011223344556677"
 ```
+
+`preferred_domain` may be `auto`, `media_player`, `remote`, or `switch`.
+In `v0.2.0`, `remote` entities are implemented; `media_player` and `switch`
+projection are planned follow-ups.
+
+`transmitter_id` selects the emitter used for this virtual IR device when more
+than one transmitter is configured.
+
+### `ir_learning_hub.update_device`
+
+Updates a registry IR device without changing its commands.
+
+At least one metadata field is required:
+
+```yaml
+location_id: cabinet
+ir_device_id: cd_player
+name: CD Transport
+type: generic
+preferred_domain: remote
+transmitter_id: "0011223344556677"
+```
+
+Returns:
+
+```yaml
+status: saved
+```
+
+Use an empty `transmitter_id` to clear the stored transmitter assignment.
 
 ### `ir_learning_hub.add_command`
 
