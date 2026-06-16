@@ -621,3 +621,17 @@ PR2/PR3 test harness note: Python 3.14.6 and `.venv314` are now available with
 PR3 must add a real-HA smoke/entity test that verifies the emitter appears,
 uses the intended device relation, and routes `ZosungCommand` to
 `ZHAAdapter.async_send`.
+
+PR3a harness note: on this Windows workspace,
+`pytest-homeassistant-custom-component` auto-loading currently fails before test
+collection because `homeassistant.runner` imports POSIX-only `fcntl`. PR3a uses
+plain pytest with plugin autoload disabled for focused send-path tests; the
+full Home Assistant entity smoke test remains a PR3/real-HA runtime gate.
+
+PR3a review follow-up: consumer-owner re-election now schedules a normal reload
+of the newly elected owner via `hass.config_entries.async_schedule_reload()`
+instead of forwarding consumer platforms from another entry's unload flow.
+Remote registry reconciliation is guarded by an `asyncio.Lock`; dispatcher
+bursts coalesce to one pending task, and pending reconcile work is cancelled on
+platform unload. Before PR3b, run a real HA 2026.6.x smoke test for one and two
+transmitters, including owner unload/re-election.

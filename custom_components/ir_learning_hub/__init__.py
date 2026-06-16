@@ -58,7 +58,8 @@ from .status import HubStatus
 from .storage import IRRegistryStore
 from .zha_adapter import ZHAAdapter
 
-PLATFORMS = [Platform.SENSOR, Platform.INFRARED]
+ENTRY_PLATFORMS = [Platform.SENSOR, Platform.INFRARED]
+CONSUMER_PLATFORMS = [Platform.REMOTE]
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_URL = "/ir_learning_hub/ir-learning-hub-card.js"
 FRONTEND_ICON_URL = "/ir_learning_hub/icon.png"
@@ -171,36 +172,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data["store"] = store
         domain_data["status"] = HubStatus()
         domain_data["adapter"] = ZHAAdapter(hass)
-        domain_data["entries"] = set()
+        domain_data["entries"] = {}
         domain_data["learn_tasks"] = {}
+
+    if not isinstance(domain_data.get("entries"), dict):
+        domain_data["entries"] = {}
 
     if not domain_data.get("frontend_registered"):
         await _async_register_frontend(hass)
         domain_data["frontend_registered"] = True
 
-    domain_data["entries"].add(entry.entry_id)
+    domain_data["entries"][entry.entry_id] = entry
+    if domain_data.get("consumer_owner") is None:
+        domain_data["consumer_owner"] = entry.entry_id
     await domain_data["store"].async_upsert_transmitter_from_entry(entry.data)
 
     if not domain_data.get("services_registered"):
         _register_services(hass)
         domain_data["services_registered"] = True
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(
+        entry,
+        _entry_platforms(domain_data, entry.entry_id),
+    )
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    domain_data = hass.data.get(DOMAIN)
+    unload_ok = await hass.config_entries.async_unload_platforms(
+        entry,
+        _entry_platforms(domain_data, entry.entry_id) if domain_data else ENTRY_PLATFORMS,
+    )
     if not unload_ok:
         return False
 
-    domain_data = hass.data.get(DOMAIN)
     if not domain_data:
         return True
 
-    domain_data.get("entries", set()).discard(entry.entry_id)
+    new_owner_id = _remove_entry_and_select_new_owner(domain_data, entry.entry_id)
     if domain_data.get("entries"):
+        if new_owner_id is not None:
+            hass.config_entries.async_schedule_reload(new_owner_id)
         return True
 
     for task in domain_data.get("learn_tasks", {}).values():
@@ -231,6 +245,39 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.pop(DOMAIN, None)
     return True
+
+
+def _entry_platforms(domain_data: dict[str, Any], entry_id: str) -> list[Platform]:
+    """Return platforms owned by one config entry."""
+    platforms = list(ENTRY_PLATFORMS)
+    if domain_data.get("consumer_owner") == entry_id:
+        platforms.extend(CONSUMER_PLATFORMS)
+    return platforms
+
+
+def _remove_entry_and_select_new_owner(
+    domain_data: dict[str, Any],
+    entry_id: str,
+) -> str | None:
+    """Remove an entry and elect a new consumer owner if needed."""
+    was_owner = domain_data.get("consumer_owner") == entry_id
+    entries = domain_data.get("entries", {})
+    if isinstance(entries, dict):
+        entries.pop(entry_id, None)
+    else:
+        entries.discard(entry_id)
+        domain_data["entries"] = {}
+        entries = domain_data["entries"]
+
+    if not entries:
+        domain_data.pop("consumer_owner", None)
+        return None
+    if not was_owner:
+        return None
+
+    new_owner_id = next(iter(entries))
+    domain_data["consumer_owner"] = new_owner_id
+    return new_owner_id
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
