@@ -13,9 +13,10 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 
 from .const import (
+    CONF_IEEE,
     DOMAIN,
     ERROR_CODE_EMPTY,
     ERROR_CODE_GENERATION,
@@ -89,6 +90,27 @@ ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 SONY_SIRC_BITS = (12, 15, 20)
 SONY_SIRC_FRAME_PERIOD_US = 45000
 GENERATE_MAX_REPEATS = 20
+REGISTERED_SERVICES = (
+    SERVICE_LEARN,
+    SERVICE_READ_LAST_CODE,
+    SERVICE_LEARN_AND_READ,
+    SERVICE_TEST_CODE,
+    SERVICE_GENERATE_CODE,
+    SERVICE_SAVE_COMMAND,
+    SERVICE_SEND_COMMAND,
+    SERVICE_LIST_COMMANDS,
+    SERVICE_ADD_LOCATION,
+    SERVICE_ADD_DEVICE,
+    SERVICE_ADD_COMMAND,
+    SERVICE_UPDATE_COMMAND,
+    SERVICE_UPDATE_DEVICE,
+    SERVICE_RENAME_LOCATION,
+    SERVICE_RENAME_DEVICE,
+    SERVICE_RENAME_COMMAND,
+    SERVICE_DELETE_LOCATION,
+    SERVICE_DELETE_DEVICE,
+    SERVICE_DELETE_COMMAND,
+)
 
 
 def _id_schema(value: str) -> str:
@@ -173,10 +195,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data["status"] = HubStatus()
         domain_data["adapter"] = ZHAAdapter(hass)
         domain_data["entries"] = {}
+        domain_data["forwarded"] = {}
         domain_data["learn_tasks"] = {}
 
     if not isinstance(domain_data.get("entries"), dict):
         domain_data["entries"] = {}
+    if not isinstance(domain_data.get("forwarded"), dict):
+        domain_data["forwarded"] = {}
 
     if not domain_data.get("frontend_registered"):
         await _async_register_frontend(hass)
@@ -185,16 +210,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     domain_data["entries"][entry.entry_id] = entry
     if domain_data.get("consumer_owner") is None:
         domain_data["consumer_owner"] = entry.entry_id
-    await domain_data["store"].async_upsert_transmitter_from_entry(entry.data)
+    transmitter_id = await domain_data["store"].async_upsert_transmitter_from_entry(
+        entry.data
+    )
+    _register_transmitter_device(hass, entry, transmitter_id)
 
     if not domain_data.get("services_registered"):
         _register_services(hass)
         domain_data["services_registered"] = True
 
+    platforms = _entry_platforms(domain_data, entry.entry_id)
     await hass.config_entries.async_forward_entry_setups(
         entry,
-        _entry_platforms(domain_data, entry.entry_id),
+        platforms,
     )
+    domain_data["forwarded"][entry.entry_id] = platforms
     return True
 
 
@@ -203,48 +233,24 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     domain_data = hass.data.get(DOMAIN)
     unload_ok = await hass.config_entries.async_unload_platforms(
         entry,
-        _entry_platforms(domain_data, entry.entry_id) if domain_data else ENTRY_PLATFORMS,
+        _forwarded_platforms(domain_data, entry.entry_id),
     )
-    if not unload_ok:
-        return False
+    return unload_ok
 
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up ownership bookkeeping after a config entry is removed."""
+    domain_data = hass.data.get(DOMAIN)
     if not domain_data:
-        return True
+        return
 
     new_owner_id = _remove_entry_and_select_new_owner(domain_data, entry.entry_id)
     if domain_data.get("entries"):
         if new_owner_id is not None:
             hass.config_entries.async_schedule_reload(new_owner_id)
-        return True
+        return
 
-    for task in domain_data.get("learn_tasks", {}).values():
-        task.cancel()
-
-    for service in (
-        SERVICE_LEARN,
-        SERVICE_READ_LAST_CODE,
-        SERVICE_LEARN_AND_READ,
-        SERVICE_TEST_CODE,
-        SERVICE_GENERATE_CODE,
-        SERVICE_SAVE_COMMAND,
-        SERVICE_SEND_COMMAND,
-        SERVICE_LIST_COMMANDS,
-        SERVICE_ADD_LOCATION,
-        SERVICE_ADD_DEVICE,
-        SERVICE_ADD_COMMAND,
-        SERVICE_UPDATE_COMMAND,
-        SERVICE_UPDATE_DEVICE,
-        SERVICE_RENAME_LOCATION,
-        SERVICE_RENAME_DEVICE,
-        SERVICE_RENAME_COMMAND,
-        SERVICE_DELETE_LOCATION,
-        SERVICE_DELETE_DEVICE,
-        SERVICE_DELETE_COMMAND,
-    ):
-        hass.services.async_remove(DOMAIN, service)
-
-    hass.data.pop(DOMAIN, None)
-    return True
+    _teardown_domain(hass, domain_data)
 
 
 def _entry_platforms(domain_data: dict[str, Any], entry_id: str) -> list[Platform]:
@@ -255,6 +261,19 @@ def _entry_platforms(domain_data: dict[str, Any], entry_id: str) -> list[Platfor
     return platforms
 
 
+def _forwarded_platforms(
+    domain_data: dict[str, Any] | None,
+    entry_id: str,
+) -> list[Platform]:
+    """Return the platforms actually forwarded for this entry."""
+    if not domain_data:
+        return list(ENTRY_PLATFORMS)
+    forwarded = domain_data.get("forwarded", {})
+    if not isinstance(forwarded, dict):
+        return list(ENTRY_PLATFORMS)
+    return list(forwarded.get(entry_id, ENTRY_PLATFORMS))
+
+
 def _remove_entry_and_select_new_owner(
     domain_data: dict[str, Any],
     entry_id: str,
@@ -262,12 +281,8 @@ def _remove_entry_and_select_new_owner(
     """Remove an entry and elect a new consumer owner if needed."""
     was_owner = domain_data.get("consumer_owner") == entry_id
     entries = domain_data.get("entries", {})
-    if isinstance(entries, dict):
-        entries.pop(entry_id, None)
-    else:
-        entries.discard(entry_id)
-        domain_data["entries"] = {}
-        entries = domain_data["entries"]
+    entries.pop(entry_id, None)
+    domain_data.get("forwarded", {}).pop(entry_id, None)
 
     if not entries:
         domain_data.pop("consumer_owner", None)
@@ -278,6 +293,34 @@ def _remove_entry_and_select_new_owner(
     new_owner_id = next(iter(entries))
     domain_data["consumer_owner"] = new_owner_id
     return new_owner_id
+
+
+def _teardown_domain(hass: HomeAssistant, domain_data: dict[str, Any]) -> None:
+    """Remove global resources after the last config entry is deleted."""
+    for task in domain_data.get("learn_tasks", {}).values():
+        task.cancel()
+
+    for service in REGISTERED_SERVICES:
+        hass.services.async_remove(DOMAIN, service)
+
+    hass.data.pop(DOMAIN, None)
+
+
+def _register_transmitter_device(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    transmitter_id: str,
+) -> None:
+    """Register the integration transmitter device before entities attach to it."""
+    ieee = str(entry.data[CONF_IEEE]).strip().lower()
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, transmitter_id)},
+        via_device=("zha", ieee),
+        name=f"IR transmitter {ieee}",
+        manufacturer="Tuya",
+        model="TS1201 / MOES UFO-R11",
+    )
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:

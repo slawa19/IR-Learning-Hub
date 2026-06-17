@@ -11,8 +11,8 @@ from homeassistant.components.remote import RemoteEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -91,7 +91,11 @@ class RemoteEntityManager:
 
             for unique_id in remove_ids:
                 entity = self.entities.pop(unique_id)
+                entity_id = entity.entity_id
+                device_identifier = entity.device_identifier
                 await entity.async_remove()
+                _remove_entity_registry_entry(self.hass, entity_id)
+                _remove_empty_virtual_device(self.hass, device_identifier)
 
             for unique_id in current_unique_ids & set(desired):
                 self.entities[unique_id].update_spec(desired[unique_id])
@@ -161,6 +165,11 @@ class IRLearningHubRemoteEntity(RemoteEntity, RestoreEntity):
         """Return the assumed power state."""
         return self._is_on
 
+    @property
+    def device_identifier(self) -> str:
+        """Return the virtual target device identifier."""
+        return self._spec.device_identifier
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the remote device on."""
         await self._send_power_command("power_on", "power_toggle")
@@ -214,7 +223,7 @@ class IRLearningHubRemoteEntity(RemoteEntity, RestoreEntity):
                     context=self._context,
                 )
                 return
-        raise HomeAssistantError(
+        raise ServiceValidationError(
             f"IR device {self._spec.device_identifier} has no supported power command"
         )
 
@@ -231,7 +240,7 @@ async def async_send_registry_command(
     canonical_command_id = normalize_command_id(command_id)
     stored_command_id = spec.command_keys.get(canonical_command_id)
     if stored_command_id is None:
-        raise HomeAssistantError(
+        raise ServiceValidationError(
             f"IR device {spec.device_identifier} has no command_id {command_id}"
         )
 
@@ -246,7 +255,10 @@ async def async_send_registry_command(
     await infrared.async_send_command(
         hass,
         emitter_entity_id,
-        ZosungCommand(command["code"], command_format=command.get("format", "zosung_base64")),
+        ZosungCommand(
+            command["code"],
+            command_format=command.get("format", "zosung_base64"),
+        ),
         context=context,
     )
 
@@ -274,7 +286,7 @@ def _transmitter_id(store: IRRegistryStore, transmitter: dict[str, Any]) -> str:
     for transmitter_id, item in store.data.get("transmitters", {}).items():
         if item is transmitter or item.get("ieee") == transmitter.get("ieee"):
             return transmitter_id
-    raise HomeAssistantError("Resolved IR transmitter is not present in the registry")
+    raise ServiceValidationError("Resolved IR transmitter is not present in the registry")
 
 
 def _emitter_entity_id(hass: HomeAssistant, transmitter_id: str) -> str:
@@ -284,7 +296,36 @@ def _emitter_entity_id(hass: HomeAssistant, transmitter_id: str) -> str:
         transmitter_id,
     )
     if entity_id is None:
-        raise HomeAssistantError(
+        raise ServiceValidationError(
             f"Infrared emitter entity for transmitter {transmitter_id} was not found"
         )
     return entity_id
+
+
+def _remove_entity_registry_entry(
+    hass: HomeAssistant,
+    entity_id: str | None,
+) -> None:
+    """Remove a stale entity registry entry for a disappeared remote entity."""
+    if entity_id is None:
+        return
+    ent_reg = er.async_get(hass)
+    if ent_reg.async_get(entity_id) is None:
+        return
+    ent_reg.async_remove(entity_id)
+
+
+def _remove_empty_virtual_device(
+    hass: HomeAssistant,
+    device_identifier: str,
+) -> None:
+    """Remove the virtual IR target device when no entities still point to it."""
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_device({(DOMAIN, device_identifier)})
+    if device is None:
+        return
+
+    ent_reg = er.async_get(hass)
+    if any(entry.device_id == device.id for entry in ent_reg.entities.values()):
+        return
+    dev_reg.async_remove_device(device.id)

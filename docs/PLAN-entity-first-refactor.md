@@ -466,8 +466,12 @@ prefers a single review.
 `identifiers={(DOMAIN, transmitter_id)}` + `via_device=("zha", ieee)`),
 `PLATFORMS = [Platform.SENSOR, Platform.INFRARED]`, manifest `["zha","infrared"]`.
 `ZosungCommand` verified against installed `infrared-protocols==6.0.1` (27 tests
-in `.venv314`). Entity layer not import-tested locally (HA 2026.6.3 needs Python
-3.14) → real-HA smoke test owed in PR3. PR3 is next.
+in `.venv314`). PR3a (remote consumer spine) + fix-pass done. **Smoke re-run
+2026-06-16: device graph ✅ and lifecycle ✅ fixed/verified; the remaining
+"toggle/missing-command 500" is a REST-transport artifact, not a code bug —
+`ServiceValidationError` is correct (see "PR3a smoke-test findings"). Spine
+effectively confirmed; two cheap WS/UI verifications + manual Scenario B remain
+before PR3b.**
 
 | PR | Title | Scope | Tests |
 |----|-------|-------|-------|
@@ -489,6 +493,144 @@ in `.venv314`). Entity layer not import-tested locally (HA 2026.6.3 needs Python
   (`infrared` dependency), `const.py` (new signal/field constants), docs.
 - **Unchanged transport:** `zha_adapter.py`, `ir_formats/*`, `device_profiles.py`
   (extend profiles only if Step 0 requires a decoder).
+
+### PR3a smoke-test findings (2026-06-16, HA 2026.6.3, real TS1201) — must fix before PR3b
+
+Passed: integration loads; emitter entity exists (`infrared.ir_transmitter_…`,
+device_class emitter); consumer remotes materialize from registry
+(`remote.denon_cd`, `remote.sony_str_db840_receiver`); `add_device`/`save_command`
+create `remote.*` live; `remote.send_command` on a real code returns OK.
+
+**Bugs (all reproduced):**
+1. **Device graph broken — `via_device` not linked.** Emitter shows
+   `via_device=null` (not under ZHA TS1201); consumer `remote.*` show
+   `via_device=null` (not under emitter). Root cause: emitter & remote platforms
+   are forwarded by the same owner entry with no guaranteed order, so the emitter
+   device often doesn't exist when a remote sets `via_device`. Fix: **explicitly
+   register the transmitter device in `__init__.async_setup_entry`**
+   (`dr.async_get_or_create(identifiers={(DOMAIN, transmitter_id)},
+   via_device=("zha", ieee), …)`) before forwarding platforms; entities then just
+   attach by identifier. Also re-measure with `via_device_id` (not `via_device`)
+   and re-confirm the IEEE colon-form matches ZHA.
+2. **`remote.toggle` → HTTP 500** (and missing-command → HTTP 500). Root cause:
+   user-facing failures raise plain `HomeAssistantError`, which the REST API
+   surfaces as 500 + traceback. Fix: raise **`ServiceValidationError`**
+   (`homeassistant.exceptions`) for "no command_id" and "no supported power
+   command". Grab the real traceback from the HA log first to rule out a second
+   crash.
+3. **Missing-command not a readable domain error** — same root cause/fix as #2.
+4. **Lifecycle orphan.** After `delete_device`/`delete_location`, `remote.*`
+   stays in the state machine as `unavailable`/`restored=true`. Root cause:
+   `entity.async_remove()` does not delete the **entity registry** entry; a
+   registry-backed entity is restored as unavailable. Fix: on reconcile-remove,
+   `entity_registry.async_remove(entity_id)` **and** clean up the now-empty
+   virtual device from the device registry. Reproduced on two devices
+   (`smoke_test_tv`, `test`) — systemic, not a fluke.
+
+**Fix-pass result (smoke re-run 2026-06-16):** Bug 1 ✅ device graph correct
+(verified via `via_device_id`: emitter → ZHA TS1201; remotes → emitter; also
+confirmed on fresh device `Test1`). Bug 4 ✅ lifecycle cleanup works (entity 404
++ device removed; confirmed on `smoke_test_tv` and `Test1`). Bugs 2 & 3 still
+showed HTTP 500 over REST — **resolved as NOT a code bug:**
+
+- HA's REST endpoint `POST /api/services/{domain}/{service}` converts **only**
+  `vol.Invalid` and `ServiceNotFound` to HTTP 400; `ServiceValidationError` and
+  any `HomeAssistantError` propagate to **HTTP 500 by design** (verified against
+  `home-assistant/core` `components/api/__init__.py`). This is identical for all
+  HA integrations.
+- Our code correctly raises `ServiceValidationError` (no pre-validation crash).
+  Over WS / Developer Tools / Assist / voice / LLM / automations it surfaces as a
+  clean, translatable error — **not** a 500. The 500 is a REST-transport artifact
+  of the openclaw test client only. Do **not** contort the code (e.g. raise
+  `vol.Invalid`) to satisfy REST.
+- **Test-design flaw:** `smoke_test_tv` had only `mute` (no power command), so
+  `remote.toggle` *correctly* errors ("no supported power command"). To verify
+  optimistic toggle, the test device must have `power_toggle` (or
+  `power_on`+`power_off`).
+
+Cheap verification (no full smoke cycle, use WS/UI not REST):
+1. Add a test device with `power_toggle`; `remote.toggle` → success + optimistic
+   `off↔on` flip.
+2. Call a missing command via Developer Tools → Actions (UI) or WS → readable
+   "has no command_id …" message, integration stays up. Or check
+   `home-assistant.log`: a clean `ServiceValidationError` line **without**
+   traceback = correct; an unexpected traceback = real bug.
+
+Optional polish (not a blocker): give the `ServiceValidationError`s a
+`translation_domain`/`translation_key` so the message localizes in the UI/Assist.
+
+**Second re-run (2026-06-16, rerun #2):** A ✅ happy-path `remote.toggle` flips
+`off↔on` with a `power_toggle` command, no 500. B ✅ accepted (no crash; correct
+by design). C ✅ lifecycle re-confirmed.
+
+**Scenario B (multi-entry) — partially verified on live HA:**
+- ✅ **Single-owner confirmed:** adding a second config entry (Manual setup, fake
+  IEEE `…00:99`) produced a second emitter but did **not** duplicate the consumer
+  entities (`remote.denon_cd`/`remote.sony_str_db840_receiver` stayed single).
+- ✅ **Non-owner unload confirmed:** deleting the second/fake (non-owner) entry
+  removed the fake emitter cleanly; both consumer remotes survived single, no
+  dupes, no `unavailable`/`restored` orphans.
+- ❗ **Owner re-election NOT verified on live HA** (operator declined to delete the
+  real owner — reasonable; would disturb production). Note: `async_unload_entry`
+  already uses `async_schedule_reload(new_owner_id)` (good).
+
+**Code-review of the re-election branch (2026-06-16) — latent multi-entry bugs
+(do NOT claim multi-transmitter support until fixed; single-transmitter installs
+are unaffected):**
+- **F1 — infinite reload loop with 3+ entries.** `_remove_entry_and_select_new_owner`
+  runs inside `async_unload_entry`, which also fires on reloads. It can't tell a
+  reload from a removal, so each scheduled reload of the newly-elected owner
+  re-elects another entry and schedules yet another reload → ping-pong forever.
+  (1–2 entries terminate; 3+ loop.)
+- **F2 — asymmetric platform unload.** After re-election the new owner is reloaded
+  with `_entry_platforms()` now including `REMOTE`, but `REMOTE` was never set up
+  on that entry → `async_unload_platforms` is asked to unload a never-loaded
+  platform (relies on HA tolerating it; unverified, could fail the reload).
+- **F3 — heavy teardown on 2-entry re-election.** Reloading the last remaining
+  (newly-elected) owner hits the empty-`entries` branch → `hass.data.pop(DOMAIN)`
+  + services removed + learn tasks cancelled, then setup rebuilds from the
+  persisted store. Recovers, but heavy/transient.
+- **F4 — dead-but-destructive set branch** (`__init__.py` ~271–273): if `entries`
+  were ever a `set`, it resets all entries to `{}`. Unreachable today (always a
+  dict) but a latent mine.
+- **Recommended fix:** separate reload from removal — `async_unload_entry` only
+  unloads platforms; implement `async_remove_entry(hass, entry)` to pop the entry,
+  re-elect the owner, `async_schedule_reload(new_owner)`, and do final teardown
+  when no entries remain. This makes reloads ownership-stable and removes F1–F3.
+- **Data safety confirmed:** registry is a single persisted store independent of
+  entries — deleting any/all entries never wipes devices/commands.
+
+**Lifecycle fix applied & reviewed (2026-06-17) — F1–F4 RESOLVED.** Implemented
+exactly as recommended: `async_setup_entry` records the actual forwarded
+platforms per entry in `domain_data["forwarded"]`; `async_unload_entry` only
+unloads `forwarded[entry_id]` (no
+re-election/teardown — fixes F2/F3); new `async_remove_entry` does pop +
+re-election + `async_schedule_reload(new_owner)` or `_teardown_domain` when empty
+(fixes F1); dead set-branch removed (F4). Verified by trace across all scenarios
+(1 reload / 2-entry owner removal / 3+ no loop / non-owner / last entry) and unit
+tests (45 passed). `REGISTERED_SERVICES` complete (19 incl. `update_device`).
+
+Residual multi-transmitter-only edges (documented, not blockers; single-
+transmitter installs unaffected). **Decision (2026-06-17): do NOT fix now.**
+- **Disable (not remove) of the owner entry** doesn't re-elect (HA only calls
+  `async_unload_entry` on disable), so consumer entities stay down until
+  re-enable. A "proper" fix would re-detect disable-vs-reload in unload — exactly
+  the complexity removed to kill F1 (reload-loop) — so a point fix is a net
+  negative.
+- **Removing the owner entry purges consumer-entity registry customizations**
+  (area/rename/expose); re-election recreates them fresh (unique_id stable).
+- **Both share one root cause: consumer entities/devices are owned by a
+  transmitter config entry.** Do NOT patch them separately. When multi-transmitter
+  is actually committed, the single correct fix is to **decouple consumer-entity
+  ownership from any transmitter entry** (e.g. a stable hub owner independent of
+  hardware). That dissolves both edges at once and avoids re-introducing
+  disable/reload discrimination. Until then: keep as documented limitations,
+  optionally mark multi-transmitter as experimental in user docs.
+
+**Verdict: PR3a spine + lifecycle fix confirmed → ready for PR3b.**
+Known multi-transmitter limitations are the documented owner-disable and
+registry-customization edge cases above; single-transmitter installs are
+unaffected.
 
 ### Carried-over notes from the PR1/PR2 review (address in PR3)
 

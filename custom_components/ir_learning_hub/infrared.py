@@ -79,11 +79,4 @@ def _transmitter_device_info(
     entry_data: dict[str, Any],
 ) -> DeviceInfo:
     """Return device registry info for the IR Learning Hub emitter."""
-    ieee = entry_data[CONF_IEEE]
-    return DeviceInfo(
-        identifiers={(DOMAIN, transmitter_id)},
-        via_device=("zha", ieee),
-        name=f"IR transmitter {ieee}",
-        manufacturer="Tuya",
-        model="TS1201 / MOES UFO-R11",
-    )
+    return DeviceInfo(identifiers={(DOMAIN, transmitter_id)})
