@@ -15,10 +15,12 @@ import pytest
 from homeassistant.exceptions import ServiceValidationError
 
 from custom_components.ir_learning_hub.const import CONF_IEEE, DOMAIN
+from custom_components.ir_learning_hub.errors import IRLearningHubError
 from custom_components.ir_learning_hub import (
     CONSUMER_PLATFORMS,
     ENTRY_PLATFORMS,
     REGISTERED_SERVICES,
+    resolve_transmitter_ref,
     async_setup_entry,
     async_remove_entry,
     async_unload_entry,
@@ -37,6 +39,7 @@ from custom_components.ir_learning_hub.remote import (
     RemoteEntityManager,
     async_send_registry_command,
 )
+from custom_components.ir_learning_hub.storage import IRRegistryStore
 
 
 class FakeStore:
@@ -46,7 +49,7 @@ class FakeStore:
 
     def resolve_transmitter(self, transmitter_id=None):
         if transmitter_id == "stale":
-            raise ValueError("stale transmitter")
+            raise IRLearningHubError("transmitter_unavailable", "Transmitter stale is not available")
         return self.transmitter
 
     def get_command(self, location_id, ir_device_id, command_id):
@@ -63,6 +66,7 @@ class FakeConfigEntries:
         self.forwarded = []
         self.unloaded = []
         self.reloads = []
+        self._entries = []
 
     async def async_forward_entry_setups(self, entry, platforms):
         self.forwarded.append((entry.entry_id, list(platforms)))
@@ -73,6 +77,9 @@ class FakeConfigEntries:
 
     def async_schedule_reload(self, entry_id):
         self.reloads.append(entry_id)
+
+    def async_entries(self, domain=None):
+        return list(self._entries)
 
 
 class FakeServices:
@@ -98,6 +105,9 @@ class FakeSetupStore:
 
     async def async_upsert_transmitter_from_entry(self, entry_data):
         return "0011"
+
+    async def async_reconcile_transmitters(self, valid_keys):
+        self.valid_keys = valid_keys
 
 
 class FakeRemovalStore:
@@ -193,7 +203,51 @@ def test_consumer_send_uses_infrared_entity_registry_and_helper(monkeypatch) -> 
                             "type": "generic",
                             "preferred_domain": "remote",
                             "transmitter_id": "stale",
-                                "commands": {"power": {"feature": "power_toggle"}},
+                            "commands": {"power": {"feature": "power_toggle"}},
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    with pytest.raises(ServiceValidationError, match="Transmitter stale is not available"):
+        asyncio.run(async_send_registry_command(object(), store, spec, "power"))
+
+
+def test_consumer_send_uses_explicit_transmitter_without_fallback(monkeypatch) -> None:
+    send_mock = AsyncMock()
+    fake_registry = type(
+        "Registry",
+        (),
+        {
+            "async_get_entity_id": lambda self, domain, platform, unique_id: (
+                "infrared.ir_transmitter"
+                if (domain, platform, unique_id) == ("infrared", DOMAIN, "0011")
+                else None
+            )
+        },
+    )()
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.consumer.er.async_get",
+        lambda hass: fake_registry,
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.consumer.infrared.async_send_command",
+        send_mock,
+    )
+    store = FakeStore()
+    [spec] = desired_entities(
+        {
+            "locations": {
+                "living": {
+                    "devices": {
+                        "tv": {
+                            "name": "TV",
+                            "type": "generic",
+                            "preferred_domain": "remote",
+                            "transmitter_id": "0011",
+                            "commands": {"power": {"feature": "power_toggle"}},
                         }
                     }
                 }
@@ -288,6 +342,7 @@ def test_setup_entry_tracks_forwarded_platforms_after_forward(monkeypatch) -> No
         (),
         {"entry_id": "owner", "data": {CONF_IEEE: "00:11"}},
     )()
+    hass.config_entries._entries = [entry]
     monkeypatch.setattr(
         "custom_components.ir_learning_hub.IRRegistryStore",
         lambda hass: FakeSetupStore(),
@@ -317,6 +372,47 @@ def test_setup_entry_tracks_forwarded_platforms_after_forward(monkeypatch) -> No
     assert domain_data["entries"] == {"owner": entry}
     assert domain_data["consumer_owner"] == "owner"
     assert domain_data["forwarded"] == {"owner": expected_platforms}
+    assert domain_data["store"].valid_keys == {"0011"}
+
+
+def test_resolve_transmitter_ref_accepts_key_ieee_and_entity_id(monkeypatch) -> None:
+    store = FakeStore()
+    registry = type(
+        "Registry",
+        (),
+        {
+            "async_get": lambda self, entity_id: type(
+                "EntityEntry",
+                (),
+                {
+                    "domain": "infrared",
+                    "platform": DOMAIN,
+                    "unique_id": "0011",
+                },
+            )()
+            if entity_id == "infrared.ir_transmitter_00_11"
+            else None
+        },
+    )()
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.er.async_get",
+        lambda hass: registry,
+    )
+
+    hass = object()
+    assert resolve_transmitter_ref(hass, store, "0011") == "0011"
+    assert resolve_transmitter_ref(hass, store, "00:11") == "0011"
+    assert resolve_transmitter_ref(hass, store, "infrared.ir_transmitter_00_11") == "0011"
+
+
+def test_resolve_transmitter_ref_rejects_unknown(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.er.async_get",
+        lambda hass: type("Registry", (), {"async_get": lambda self, entity_id: None})(),
+    )
+
+    with pytest.raises(ServiceValidationError, match="Unknown IR transmitter: nope"):
+        resolve_transmitter_ref(object(), FakeStore(), "nope")
 
 
 def test_remove_owner_re_elects_once_and_schedules_reload() -> None:
@@ -368,6 +464,148 @@ def test_remove_entry_deletes_transmitter_from_store() -> None:
 
     assert store.data["transmitters"] == {}
     assert store.saved is True
+
+
+def test_store_reconcile_prunes_orphans_and_list_commands_shows_valid_transmitters() -> None:
+    store = IRRegistryStore.__new__(IRRegistryStore)
+    store.data = {
+        "transmitters": {
+            "0011": {"ieee": "00:11", "name": "Living", "enabled": True},
+            "0022": {"ieee": "00:22", "name": "Bedroom", "enabled": False},
+            "dead": {"ieee": "de:ad", "name": "Orphan", "enabled": True},
+        },
+        "locations": {},
+    }
+    store.async_save = AsyncMock()
+
+    asyncio.run(store.async_reconcile_transmitters({"0011", "0022"}))
+
+    assert set(store.data["transmitters"]) == {"0011", "0022"}
+    listed = store.list_commands()["transmitters"]
+    assert listed == [
+        {"key": "0011", "ieee": "00:11", "name": "Living", "enabled": True},
+        {"key": "0022", "ieee": "00:22", "name": "Bedroom", "enabled": False},
+    ]
+
+
+def test_store_update_device_rejects_unknown_transmitter_id() -> None:
+    store = IRRegistryStore.__new__(IRRegistryStore)
+    store.data = {
+        "transmitters": {"0011": {"ieee": "00:11", "enabled": True}},
+        "locations": {
+            "living": {
+                "devices": {
+                    "tv": {
+                        "name": "TV",
+                        "type": "generic",
+                        "preferred_domain": "remote",
+                        "transmitter_id": None,
+                        "commands": {},
+                    }
+                }
+            }
+        },
+    }
+    store.async_save = AsyncMock()
+
+    with pytest.raises(IRLearningHubError, match="Unknown IR transmitter: garbage"):
+        asyncio.run(
+            store.update_device(
+                "living",
+                "tv",
+                transmitter_id="garbage",
+            )
+        )
+
+
+def test_resolved_entity_id_can_be_saved_as_canonical_transmitter_id(monkeypatch) -> None:
+    store = IRRegistryStore.__new__(IRRegistryStore)
+    store.data = {
+        "transmitters": {"0011": {"ieee": "00:11", "enabled": True}},
+        "locations": {
+            "living": {
+                "devices": {
+                    "tv": {
+                        "name": "TV",
+                        "type": "generic",
+                        "preferred_domain": "remote",
+                        "transmitter_id": None,
+                        "commands": {},
+                    }
+                }
+            }
+        },
+    }
+    store.async_save = AsyncMock()
+    registry = type(
+        "Registry",
+        (),
+        {
+            "async_get": lambda self, entity_id: type(
+                "EntityEntry",
+                (),
+                {
+                    "domain": "infrared",
+                    "platform": DOMAIN,
+                    "unique_id": "0011",
+                },
+            )()
+        },
+    )()
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.er.async_get",
+        lambda hass: registry,
+    )
+
+    transmitter_id = resolve_transmitter_ref(
+        object(), store, "infrared.ir_transmitter_00_11"
+    )
+    asyncio.run(
+        store.update_device(
+            "living",
+            "tv",
+            transmitter_id=transmitter_id,
+        )
+    )
+
+    assert store.data["locations"]["living"]["devices"]["tv"]["transmitter_id"] == "0011"
+
+
+def test_remote_manager_coalesces_trailing_edge_reconcile(monkeypatch) -> None:
+    class Task:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    class Hass:
+        def async_create_task(self, coro):
+            coro.close()
+            return Task()
+
+    manager = RemoteEntityManager(Hass(), FakeStore(), lambda entities: None)
+    run_order = []
+
+    async def fake_reconcile(self):
+        async with self._reconcile_lock:
+            while True:
+                self._reconcile_pending = False
+                run_order.append("run")
+                if len(run_order) == 1:
+                    self.async_schedule_reconcile()
+                if not self._reconcile_pending:
+                    break
+
+    monkeypatch.setattr(RemoteEntityManager, "async_reconcile", fake_reconcile, raising=False)
+    manager._reconcile_task = Task()
+
+    asyncio.run(fake_reconcile(manager))
+
+    assert run_order == ["run", "run"]
 
 
 def test_remove_non_owner_does_not_reload_or_change_owner() -> None:

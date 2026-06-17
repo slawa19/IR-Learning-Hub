@@ -13,7 +13,12 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+)
 
 from .const import (
     COMMAND_FEATURES,
@@ -57,7 +62,8 @@ from .ir_formats import (
     zosung_encode,
 )
 from .status import HubStatus
-from .storage import IRRegistryStore
+from .storage import IRRegistryStore, normalize_ieee
+from .transmitter_identity import canonical_emitter_entity_id, normalize_transmitter_ref
 from .zha_adapter import ZHAAdapter
 
 ENTRY_PLATFORMS = [Platform.SENSOR, Platform.INFRARED]
@@ -216,6 +222,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     transmitter_id = await domain_data["store"].async_upsert_transmitter_from_entry(
         entry.data
     )
+    valid_transmitter_ids = {
+        normalize_ieee(config_entry.data[CONF_IEEE])
+        for config_entry in hass.config_entries.async_entries(DOMAIN)
+        if config_entry.data.get(CONF_IEEE)
+    }
+    await domain_data["store"].async_reconcile_transmitters(valid_transmitter_ids)
     _register_transmitter_device(hass, entry, transmitter_id)
 
     if not domain_data.get("services_registered"):
@@ -339,7 +351,7 @@ async def _async_remove_transmitter_for_entry(
     if not transmitter_id:
         return
     removed = store.data.get("transmitters", {}).pop(
-        transmitter_id.replace(":", "").lower(),
+        normalize_ieee(transmitter_id),
         None,
     )
     if removed is not None:
@@ -374,7 +386,11 @@ def _register_services(hass: HomeAssistant) -> None:
     learn_tasks: dict[str, asyncio.Task] = hass.data[DOMAIN]["learn_tasks"]
 
     def transmitter(data: dict[str, Any]) -> dict[str, Any]:
-        return store.resolve_transmitter(data.get(FIELD_TRANSMITTER_ID))
+        transmitter_ref = data.get(FIELD_TRANSMITTER_ID)
+        if transmitter_ref:
+            canonical = resolve_transmitter_ref(hass, store, transmitter_ref)
+            return store.resolve_transmitter(canonical)
+        return store.resolve_transmitter(None)
 
     async def run_service(
         action: str,
@@ -644,7 +660,17 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def list_commands(call: ServiceCall) -> dict[str, Any]:
         async def action() -> dict[str, Any]:
-            return store.list_commands()
+            response = store.list_commands()
+            for transmitter in response.get("transmitters", []):
+                transmitter["entity_id"] = (
+                    er.async_get(hass).async_get_entity_id(
+                        Platform.INFRARED,
+                        DOMAIN,
+                        transmitter["key"],
+                    )
+                    or canonical_emitter_entity_id(transmitter["key"])
+                )
+            return response
 
         return await run_service(SERVICE_LIST_COMMANDS, action, data=call.data)
 
@@ -657,13 +683,18 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def add_device(call: ServiceCall) -> dict[str, str]:
         async def action() -> dict[str, str]:
+            transmitter_id = call.data.get(FIELD_TRANSMITTER_ID)
             await store.add_device(
                 call.data[FIELD_LOCATION_ID],
                 call.data[FIELD_IR_DEVICE_ID],
                 call.data[FIELD_NAME],
                 call.data[FIELD_TYPE],
                 call.data.get(FIELD_PREFERRED_DOMAIN),
-                call.data.get(FIELD_TRANSMITTER_ID) or None,
+                (
+                    resolve_transmitter_ref(hass, store, transmitter_id)
+                    if transmitter_id
+                    else None
+                ),
             )
             return {"status": "saved"}
 
@@ -671,6 +702,14 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def update_device(call: ServiceCall) -> dict[str, str]:
         async def action() -> dict[str, str]:
+            transmitter_id = None
+            if FIELD_TRANSMITTER_ID in call.data:
+                raw_transmitter_id = call.data[FIELD_TRANSMITTER_ID]
+                transmitter_id = (
+                    resolve_transmitter_ref(hass, store, raw_transmitter_id)
+                    if raw_transmitter_id
+                    else None
+                )
             await store.update_device(
                 call.data[FIELD_LOCATION_ID],
                 call.data[FIELD_IR_DEVICE_ID],
@@ -678,9 +717,7 @@ def _register_services(hass: HomeAssistant) -> None:
                 device_type=call.data.get(FIELD_TYPE),
                 preferred_domain=call.data.get(FIELD_PREFERRED_DOMAIN),
                 transmitter_id=(
-                    call.data[FIELD_TRANSMITTER_ID]
-                    if FIELD_TRANSMITTER_ID in call.data
-                    else None
+                    transmitter_id if FIELD_TRANSMITTER_ID in call.data else None
                 ),
             )
             return {"status": "saved"}
@@ -1010,3 +1047,27 @@ def _register_services(hass: HomeAssistant) -> None:
         ),
         supports_response=SupportsResponse.OPTIONAL,
     )
+
+
+def resolve_transmitter_ref(
+    hass: HomeAssistant,
+    store: IRRegistryStore,
+    ref: str,
+) -> str:
+    """Resolve a transmitter reference to the canonical store key."""
+    normalized = normalize_transmitter_ref(ref)
+    if normalized in store.data.get("transmitters", {}):
+        return normalized
+
+    entity_entry = er.async_get(hass).async_get(ref)
+    if (
+        entity_entry is not None
+        and entity_entry.domain == Platform.INFRARED
+        and entity_entry.platform == DOMAIN
+        and entity_entry.unique_id
+    ):
+        unique_id = str(entity_entry.unique_id)
+        if unique_id in store.data.get("transmitters", {}):
+            return unique_id
+
+    raise ServiceValidationError(f"Unknown IR transmitter: {ref}")

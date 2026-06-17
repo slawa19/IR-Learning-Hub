@@ -10,7 +10,13 @@ _PKG_DIR = Path(__file__).resolve().parents[1] / "custom_components" / "ir_learn
 if str(_PKG_DIR) not in sys.path:
     sys.path.insert(0, str(_PKG_DIR))
 
-from storage_migration import migrate_to_v3, migrate_v1_to_v2, migrate_v2_to_v3  # noqa: E402
+from storage_migration import (  # noqa: E402
+    migrate_to_v3,
+    migrate_to_v4,
+    migrate_v1_to_v2,
+    migrate_v2_to_v3,
+    migrate_v3_to_v4,
+)
 
 
 class StorageMigrationTests(unittest.TestCase):
@@ -139,6 +145,61 @@ class StorageMigrationTests(unittest.TestCase):
         self.assertEqual(commands["source_cd"]["feature"], "source")
         self.assertNotIn("feature", commands["tuner"])
         self.assertNotIn("feature", commands["video_1"])
+
+    def test_v3_to_v4_canonicalizes_known_transmitter_refs(self) -> None:
+        migrated = migrate_v3_to_v4(
+            {
+                "version": 3,
+                "transmitters": {
+                    "b0e8e8fffe16ef35": {"ieee": "b0:e8:e8:ff:fe:16:ef:35"}
+                },
+                "locations": {
+                    "room": {
+                        "devices": {
+                            "amp": {
+                                "name": "Amp",
+                                "type": "media_player",
+                                "transmitter_id": "ir_transmitter_b0_e8_e8_ff_fe_16_ef_35",
+                                "commands": {},
+                            }
+                        }
+                    }
+                },
+            }
+        )
+
+        device = migrated["locations"]["room"]["devices"]["amp"]
+        self.assertEqual(device["transmitter_id"], "b0e8e8fffe16ef35")
+
+    def test_v3_to_v4_clears_unknown_transmitter_refs(self) -> None:
+        migrated = migrate_to_v4(
+            {
+                "version": 3,
+                "transmitters": {"known": {"ieee": "00:11"}},
+                "locations": {
+                    "room": {
+                        "devices": {
+                            "amp": {
+                                "name": "Amp",
+                                "type": "media_player",
+                                "transmitter_id": "infrared.ir_transmitter_dead_beef",
+                                "commands": {},
+                            },
+                            "tv": {
+                                "name": "TV",
+                                "type": "generic",
+                                "transmitter_id": "known",
+                                "commands": {},
+                            },
+                        }
+                    }
+                },
+            }
+        )
+
+        devices = migrated["locations"]["room"]["devices"]
+        self.assertIsNone(devices["amp"]["transmitter_id"])
+        self.assertEqual(devices["tv"]["transmitter_id"], "known")
 
 
 if __name__ == "__main__":

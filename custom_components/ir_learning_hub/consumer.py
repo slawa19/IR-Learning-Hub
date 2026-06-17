@@ -86,41 +86,48 @@ class ConsumerEntityManager:
         self.entities: dict[str, Entity] = {}
         self._reconcile_lock = asyncio.Lock()
         self._reconcile_task: asyncio.Task | None = None
+        self._reconcile_pending = False
 
     @callback
     def async_schedule_reconcile(self) -> None:
         """Schedule an idempotent registry resync."""
         if self._reconcile_task is not None and not self._reconcile_task.done():
+            self._reconcile_pending = True
             return
         self._reconcile_task = self.hass.async_create_task(self.async_reconcile())
 
     async def async_reconcile(self) -> None:
         """Add, update, and remove entities to match registry data."""
         async with self._reconcile_lock:
-            desired = desired_entities_for_domain(self.store.data, self.platform_domain)
-            current_unique_ids = set(self.entities)
-            add_ids = set(desired) - current_unique_ids
-            remove_ids = current_unique_ids - set(desired)
+            while True:
+                self._reconcile_pending = False
+                desired = desired_entities_for_domain(self.store.data, self.platform_domain)
+                current_unique_ids = set(self.entities)
+                add_ids = set(desired) - current_unique_ids
+                remove_ids = current_unique_ids - set(desired)
 
-            for unique_id in remove_ids:
-                entity = self.entities.pop(unique_id)
-                entity_id = entity.entity_id
-                device_identifier = entity.device_identifier
-                await entity.async_remove()
-                _remove_entity_registry_entry(self.hass, entity_id)
-                _remove_empty_virtual_device(self.hass, device_identifier)
+                for unique_id in remove_ids:
+                    entity = self.entities.pop(unique_id)
+                    entity_id = entity.entity_id
+                    device_identifier = entity.device_identifier
+                    await entity.async_remove()
+                    _remove_entity_registry_entry(self.hass, entity_id)
+                    _remove_empty_virtual_device(self.hass, device_identifier)
 
-            for unique_id in current_unique_ids & set(desired):
-                self.entities[unique_id].update_spec(desired[unique_id])
+                for unique_id in current_unique_ids & set(desired):
+                    self.entities[unique_id].update_spec(desired[unique_id])
 
-            new_entities = [
-                self.entity_factory(self.store, desired[unique_id])
-                for unique_id in sorted(add_ids)
-            ]
-            for entity in new_entities:
-                self.entities[entity.unique_id] = entity
-            if new_entities:
-                self.async_add_entities(new_entities)
+                new_entities = [
+                    self.entity_factory(self.store, desired[unique_id])
+                    for unique_id in sorted(add_ids)
+                ]
+                for entity in new_entities:
+                    self.entities[entity.unique_id] = entity
+                if new_entities:
+                    self.async_add_entities(new_entities)
+
+                if not self._reconcile_pending:
+                    break
 
     @callback
     def async_unload(self) -> None:
@@ -128,6 +135,7 @@ class ConsumerEntityManager:
         if self._reconcile_task is not None and not self._reconcile_task.done():
             self._reconcile_task.cancel()
         self._reconcile_task = None
+        self._reconcile_pending = False
         self.entities.clear()
 
 
@@ -247,13 +255,10 @@ async def async_send_feature_command(
 
 
 def resolve_spec_transmitter(store: IRRegistryStore, spec: EntitySpec) -> dict[str, Any]:
-    """Resolve the transmitter for a spec, softly falling back from stale IDs."""
+    """Resolve the transmitter for a spec."""
     if spec.transmitter_id is None:
         return store.resolve_transmitter(None)
-    try:
-        return store.resolve_transmitter(spec.transmitter_id)
-    except Exception:
-        return store.resolve_transmitter(None)
+    return store.resolve_transmitter(spec.transmitter_id)
 
 
 def spec_transmitter_device_id(
@@ -263,7 +268,7 @@ def spec_transmitter_device_id(
     """Return the resolved transmitter device identifier for DeviceInfo."""
     try:
         return transmitter_id_for_store_item(store, resolve_spec_transmitter(store, spec))
-    except Exception:
+    except (IRLearningHubError, ServiceValidationError):
         return None
 
 

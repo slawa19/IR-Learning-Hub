@@ -186,6 +186,24 @@ class IRLearningHubCard extends HTMLElement {
   _loc() { return (this._registry.locations || {})[this._selLoc]; }
   _dev() { return (this._loc()?.devices || {})[this._selDev]; }
   _cmds() { return this._dev()?.commands || {}; }
+  _registryTransmitters() { return this._registry.transmitters || []; }
+
+  _showTransmitterPicker(dev) {
+    const transmitters = this._registryTransmitters();
+    return transmitters.length > 1 || !!dev?.transmitter_id;
+  }
+
+  _transmitterSelect(value) {
+    return `
+      <select class="fi" data-device-transmitter>
+        <option value="">${this._x(this._t("transmitterAuto"))}</option>
+        ${this._registryTransmitters().map((tx) => `
+          <option value="${this._x(tx.key)}"${tx.key === (value || "") ? " selected" : ""}>
+            ${this._x(tx.name || tx.entity_id || tx.key)}
+          </option>
+        `).join("")}
+      </select>`;
+  }
 
   // ── Add forms ─────────────────────────────────────────────────────────────
 
@@ -532,6 +550,16 @@ class IRLearningHubCard extends HTMLElement {
 
     const dev = this._dev();
     const head = `<div class="remote-head">${this._x(dev?.name || this._selDev)}</div>`;
+    const settings = this._showTransmitterPicker(dev) ? `
+      <div class="device-settings">
+        <div class="panel-title">${this._x(this._t("transmitterLabel"))}</div>
+        <div class="device-settings-row">
+          ${this._transmitterSelect(dev?.transmitter_id || "")}
+          <button class="btn p icon-only" data-act="saveDeviceTransmitter" ${this._busy ? "disabled" : ""} title="${this._x(this._t("save"))}" aria-label="${this._x(this._t("save"))}">
+            <ha-icon icon="mdi:check"></ha-icon>
+          </button>
+        </div>
+      </div>` : "";
 
     const cmds = this._cmds();
     const cmdEntries = Object.entries(cmds);
@@ -586,6 +614,7 @@ class IRLearningHubCard extends HTMLElement {
 
     return `
       ${head}
+      ${settings}
       <div class="cmd-grid">${grid}</div>
       <div class="remote-foot">${footer}</div>`;
   }
@@ -864,6 +893,20 @@ class IRLearningHubCard extends HTMLElement {
     });
   }
 
+  async _saveDeviceTransmitter() {
+    const select = this.shadowRoot.querySelector("[data-device-transmitter]");
+    if (!select) return;
+    await this._run(async () => {
+      await this._call("update_device", {
+        location_id: this._selLoc,
+        ir_device_id: this._selDev,
+        transmitter_id: select.value,
+      });
+      await this._loadRegistry();
+      this._msg = this._t("saved");
+    });
+  }
+
   _renderWizard() {
     const w = this._wizard;
     const timeout = this._config.timeout || 60;
@@ -1091,6 +1134,7 @@ class IRLearningHubCard extends HTMLElement {
       copyProfile: () => this._copyProfile(),
       downloadProfile: () => this._downloadProfile(),
       runImport: () => this._runImport(),
+      saveDeviceTransmitter: () => this._saveDeviceTransmitter(),
       showAddLoc: () => { this._addForm = { type: "location", id: "", name: "", idTouched: false }; this._render(); },
       submitAdd: () => this._submitAdd(),
       cancelAdd: () => { this._addForm = null; this._render(); },
@@ -1158,6 +1202,8 @@ const TRANSLATIONS = {
     featureUnmute: "Unmute",
     featureMuteToggle: "Mute toggle",
     featureSource: "Source",
+    transmitterAuto: "Automatic",
+    transmitterLabel: "Transmitter",
     iconLabel: "Icon",
     import: "Import",
     importHint: "Paste a profile JSON to add its commands to this device.",
@@ -1241,6 +1287,8 @@ const TRANSLATIONS = {
     featureUnmute: "Unmute",
     featureMuteToggle: "Mute toggle",
     featureSource: "Источник",
+    transmitterAuto: "Автоматически",
+    transmitterLabel: "Передатчик",
     iconLabel: "Иконка",
     import: "Импорт",
     importHint: "Вставьте JSON профиля, чтобы добавить его команды в это устройство.",
@@ -1324,6 +1372,8 @@ const TRANSLATIONS = {
     featureUnmute: "Unmute",
     featureMuteToggle: "Mute toggle",
     featureSource: "Джерело",
+    transmitterAuto: "Автоматично",
+    transmitterLabel: "Передавач",
     iconLabel: "Іконка",
     import: "Імпорт",
     importHint: "Вставте JSON профілю, щоб додати його команди до цього пристрою.",
@@ -1486,6 +1536,18 @@ const STYLES = `
 
   /* Remote */
   .remote-head { font-size: 15px; font-weight: 600; }
+  .device-settings {
+    padding: 12px;
+    border: 1px solid var(--divider-color);
+    border-radius: 8px;
+    background: var(--secondary-background-color);
+  }
+  .device-settings-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 36px;
+    gap: 8px;
+    align-items: center;
+  }
   .cmd-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));

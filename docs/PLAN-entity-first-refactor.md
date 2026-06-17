@@ -480,8 +480,9 @@ before PR3b.**
 | **PR2** ✅ | Infrared emitter platform | Step 2: `Platform.INFRARED`, `infrared.py` `InfraredEmitterEntity` wrapping `ZHAAdapter`, `ZosungCommand(Command)`, manifest `["zha","infrared"]`. | Emitter send forwards to adapter; one emitter per transmitter; `ZosungCommand` carries opaque code. |
 | **PR3a** ✅ | Consumer spine (remote) | `registry_runtime.py` diff helper + `remote.py`; DeviceInfo + `via_device`; single-owner config entry + lifecycle (F1–F4 fixed via `async_remove_entry`); dynamic add/remove; RestoreEntity + assumed/optimistic; `ServiceValidationError`. Verified on real HA (1-transmitter). | Materialization; dynamic add/remove; command_id mapping; send + `ServiceValidationError`; lifecycle/cleanup; owner-removal re-election (unit). |
 | **PR3b** 🟡 | Consumer domains (media_player + switch) | `media_player.py` + `switch.py` on a shared consumer base extracted from `remote.py`; honest off-semantics; cross-domain transition. Code works on real HA; capability detection fixed by PR3c. | Off-semantics; optimistic+Restore; cross-domain move; existing tests green. |
-| **PR3c** ✅ | Explicit command `feature` semantics | Replace "infer capability from `command_id` text" with an explicit per-command `feature` role. Includes stale-transmitter prune on entry removal and `ServiceValidationError` wrapping for transmitter resolution. Awaiting real-HA PR3b smoke re-run. | feature-based inference; v3 migration seeder; select_source by label; remote raw passthrough; existing tests green. |
-| **PR-MT** ⬜ | Multi-transmitter support | **After PR3b/PR3c.** Make 2+ transmitters usable — see "Multi-transmitter PR". | Per-device transmitter resolution; ownership decoupling; lifecycle edges closed. |
+| **PR3c** ✅ | Explicit command `feature` semantics | Replace "infer capability from `command_id` text" with an explicit per-command `feature` role. Includes stale-transmitter prune on entry removal and `ServiceValidationError` wrapping for transmitter resolution. | feature-based inference; v3 migration seeder; select_source by label; remote raw passthrough; existing tests green. |
+| **PR3d** ⬜ | Canonical transmitter identity + reconcile fixes | Real-HA PR3c smoke surfaced an identity desync + a dropped-reconcile race — see "PR3d". Blocks the PR3b/PR3c smoke. | ref resolver; reconcile orphans; write-path validation; no masking fallback; v3→v4 migration; trailing-edge reconcile; transmitters in `list_commands`. |
+| **PR-MT** ⬜ | Multi-transmitter support | **After PR3d.** Remaining: per-device transmitter selector UI, ownership decoupling — see "Multi-transmitter PR". | Ownership decoupling; lifecycle edges closed. |
 | **PR4** | Docs + back-compat hardening | Update `ARCHITECTURE.md`, `SERVICES.md`, `README.md` (incl. Assist "expose new entities" note), `ROADMAP.md`; back-compat service tests; final PR-description deliverable. | Services still resolve/send post-refactor. |
 
 ### File map (added / changed)
@@ -727,7 +728,58 @@ Lovelace card expose a role selector; stale transmitter records are pruned on
 entry removal and transmitter resolution errors are wrapped as
 `ServiceValidationError`.
 
-### Multi-transmitter PR (PR-MT) — scheduled after PR3b/PR3c
+### PR3d — canonical transmitter identity fix
+
+Real-HA PR3c smoke (2026-06-17) still crashed `media_player.volume_up` with
+`More than one transmitter is enabled` / `Transmitter ir_transmitter_… is not
+available`. Code review found a **transmitter identity desync** — three
+representations that don't match:
+- canonical key `normalize_ieee(ieee)` (e.g. `b0e8e8fffe16ef35`) = store key =
+  emitter `unique_id`;
+- emitter `entity_id` (UI-visible) = `infrared.ir_transmitter_b0_e8_e8_…_35`;
+- `device.transmitter_id` — accepted unvalidated; the entity_id tail was stored,
+  so resolution fails.
+
+Bugs:
+- **A — no normalize/validate on write.** `add_device`/`update_device` store
+  `transmitter_id` verbatim (`storage.py:217,245`); garbage is silently accepted.
+- **B — masking fallback.** `consumer.resolve_spec_transmitter` wraps an explicit
+  lookup in bare `except Exception` → falls back to `resolve_transmitter(None)`,
+  hiding the real cause and emitting the misleading "More than one transmitter".
+- **C — orphan transmitters not reconciled.** A removed entry's transmitter
+  lingers in the store (the fake `00:00…99`); prune only fires on future
+  `async_remove_entry`, so pre-existing orphans persist → `resolve(None)` sees >1.
+- **D — existing `device.transmitter_id` values are already wrong** (entity_id
+  tail), need repair.
+
+Fix (one canonical key everywhere):
+1. **Reconcile** store transmitters against `hass.config_entries.async_entries(
+   DOMAIN)` at setup; drop keys with no entry (self-heals orphans).
+2. **`resolve_transmitter_ref(hass, store, ref)`** → canonical key (accepts key /
+   colon-IEEE / emitter entity_id; strips `ir_transmitter_`, `:`, `_`); unknown →
+   `ServiceValidationError`. Service write-paths normalize+validate via it; store
+   defends that `transmitter_id` ∈ known keys.
+3. **Remove masking fallback:** explicit-but-invalid `transmitter_id` → clear
+   error; `resolve_transmitter(None)` only when unset.
+4. **Migration v3→v4** repairs existing `device.transmitter_id` (normalize →
+   match a store key, else `None`).
+5. **Card UI:** pick the emitter from a list (store canonical key), not free text.
+6. **Trailing-edge reconcile (confirmed live).** `ConsumerEntityManager.
+   async_schedule_reconcile` drops signals that arrive while a reconcile is in
+   flight (`if task and not task.done(): return`), so a burst of `update_command`s
+   (e.g. assigning `feature: source` to several commands) leaves `source_list` /
+   `supported_features` stale until an unrelated signal. Fix: track a "dirty"
+   flag set on dropped signals and re-run reconcile once after the current one
+   finishes (trailing edge), guaranteeing the final store state is reflected.
+   Observed 2026-06-17: SELECT_SOURCE appeared but `source_list` only populated
+   after an extra `update_device`.
+7. **Expose transmitters in `list_commands`** (sanitized — no secrets). Today the
+   response is `{locations: …}` only, so orphan transmitter records in the store
+   are invisible to services; the smoke agent wrongly concluded "one transmitter"
+   from emitter entities. Adding them makes orphans/reconcile observable and
+   testable.
+
+### Multi-transmitter PR (PR-MT) — scheduled after PR3d
 
 Today 2+ transmitters are **not usable** even though the config flow allows
 adding them. This PR makes them correct. Scope, in priority order:

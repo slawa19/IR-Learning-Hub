@@ -24,10 +24,11 @@ from .const import (
 )
 from .device_profiles import get_profile
 from .errors import IRLearningHubError
-from .storage_migration import migrate_to_v3
+from .storage_migration import migrate_to_v4
+from .transmitter_identity import normalize_transmitter_ref
 
 STORAGE_KEY = "ir_learning_hub"
-STORAGE_VERSION = 3
+STORAGE_VERSION = 4
 ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
@@ -74,7 +75,7 @@ class IRRegistryDataStore(Store):
         old_data: dict[str, Any],
     ) -> dict[str, Any]:
         """Migrate old registry data to the current schema."""
-        return migrate_to_v3(old_data)
+        return migrate_to_v4(old_data)
 
 
 class IRRegistryStore:
@@ -94,7 +95,7 @@ class IRRegistryStore:
             return
 
         if stored.get("version", 1) < STORAGE_VERSION:
-            stored = migrate_to_v3(stored)
+            stored = migrate_to_v4(stored)
 
         self.data = _default_data() | stored
         self.data.setdefault("transmitters", {})
@@ -137,6 +138,16 @@ class IRRegistryStore:
         }
         await self.async_save()
         return transmitter_id
+
+    async def async_reconcile_transmitters(self, valid_keys: set[str]) -> None:
+        """Drop orphaned transmitters that no longer have a config entry."""
+        transmitters = self.data.setdefault("transmitters", {})
+        stale_keys = [key for key in transmitters if key not in valid_keys]
+        if not stale_keys:
+            return
+        for key in stale_keys:
+            transmitters.pop(key, None)
+        await self.async_save()
 
     def resolve_transmitter(self, transmitter_id: str | None = None) -> dict[str, Any]:
         """Resolve an explicit or default enabled transmitter."""
@@ -202,6 +213,8 @@ class IRRegistryStore:
         _validate_id(ir_device_id, "ir_device_id")
         if preferred_domain is not None:
             _validate_preferred_domain(preferred_domain)
+        if transmitter_id:
+            self._validate_transmitter_id(transmitter_id)
         location = self.data["locations"].setdefault(
             location_id, {"name": location_id, "devices": {}}
         )
@@ -222,6 +235,8 @@ class IRRegistryStore:
         if preferred_domain is not None:
             device["preferred_domain"] = preferred_domain
         if transmitter_id is not None:
+            if transmitter_id:
+                self._validate_transmitter_id(transmitter_id)
             device["transmitter_id"] = transmitter_id or None
         await self.async_save()
 
@@ -250,6 +265,8 @@ class IRRegistryStore:
             _validate_preferred_domain(preferred_domain)
             device["preferred_domain"] = preferred_domain
         if transmitter_id is not None:
+            if transmitter_id:
+                self._validate_transmitter_id(transmitter_id)
             device["transmitter_id"] = transmitter_id or None
         await self.async_save()
 
@@ -397,7 +414,21 @@ class IRRegistryStore:
 
     def list_commands(self) -> dict[str, Any]:
         """Return a response-safe registry copy."""
-        return {"locations": deepcopy(self.data.get("locations", {}))}
+        transmitters = [
+            {
+                "key": transmitter_id,
+                "ieee": item.get("ieee"),
+                "name": item.get("name"),
+                "enabled": item.get("enabled", True),
+            }
+            for transmitter_id, item in sorted(
+                self.data.get("transmitters", {}).items()
+            )
+        ]
+        return {
+            "locations": deepcopy(self.data.get("locations", {})),
+            "transmitters": transmitters,
+        }
 
     def _location(self, location_id: str) -> dict[str, Any]:
         try:
@@ -427,3 +458,16 @@ class IRRegistryStore:
                 ERROR_COMMAND_NOT_FOUND,
                 f"Command {command_id} was not found",
             ) from err
+
+    def _validate_transmitter_id(self, transmitter_id: str) -> None:
+        """Ensure a stored device transmitter id is already canonical and known."""
+        if normalize_transmitter_ref(transmitter_id) != transmitter_id:
+            raise IRLearningHubError(
+                ERROR_TRANSMITTER_UNAVAILABLE,
+                f"Unknown IR transmitter: {transmitter_id}",
+            )
+        if transmitter_id not in self.data.get("transmitters", {}):
+            raise IRLearningHubError(
+                ERROR_TRANSMITTER_UNAVAILABLE,
+                f"Unknown IR transmitter: {transmitter_id}",
+            )
