@@ -478,7 +478,9 @@ before PR3b.**
 | **PR0 (spike)** ✅ | Infrared platform fit | Step 0 verification; results + chosen routing path recorded below. | n/a |
 | **PR1** ✅ | Storage foundation | Step 1: store v2 migration via `_async_migrate_func`, `preferred_domain`/`transmitter_id` fields + `add_device`/`update_device` write path, `{DOMAIN}_registry_updated` dispatcher, `capabilities.py` (inference + alias map). No new entities. | Migration v1→v2; capability inference; alias normalization; new fields persisted via service. |
 | **PR2** ✅ | Infrared emitter platform | Step 2: `Platform.INFRARED`, `infrared.py` `InfraredEmitterEntity` wrapping `ZHAAdapter`, `ZosungCommand(Command)`, manifest `["zha","infrared"]`. | Emitter send forwards to adapter; one emitter per transmitter; `ZosungCommand` carries opaque code. |
-| **PR3** ⬜ | Consumer entity layer | Steps 3–6: `registry_runtime.py` diff helper + per-platform `media_player.py`/`remote.py`/optional `switch.py`; DeviceInfo + `via_device`; single-owner config entry **+ unload/owner re-election**; dynamic add/remove; RestoreEntity + assumed/optimistic state; honest media_player off-semantics; Assist-friendly metadata. **+ real-HA smoke test for the PR2 emitter (DeviceInfo/via_device/send).** | Materialization; dynamic add/remove; command_id mapping; remote send + `HomeAssistantError`; state transitions; primary-unload transition. |
+| **PR3a** ✅ | Consumer spine (remote) | `registry_runtime.py` diff helper + `remote.py`; DeviceInfo + `via_device`; single-owner config entry + lifecycle (F1–F4 fixed via `async_remove_entry`); dynamic add/remove; RestoreEntity + assumed/optimistic; `ServiceValidationError`. Verified on real HA (1-transmitter). | Materialization; dynamic add/remove; command_id mapping; send + `ServiceValidationError`; lifecycle/cleanup; owner-removal re-election (unit). |
+| **PR3b** 🟡 | Consumer domains (media_player + switch) | `media_player.py` + `switch.py` on a shared consumer base extracted from `remote.py`; capability→features; source_list/select_source; honest off-semantics; cross-domain transition. Code implemented locally; awaiting real-HA smoke. | Capability→`MediaPlayerEntityFeature`; source reverse-map; service→command_id; off-semantics; optimistic+Restore; cross-domain move; existing tests green. |
+| **PR-MT** ⬜ | Multi-transmitter support | **After PR3b.** Make 2+ transmitters actually usable — see "Multi-transmitter PR" below. | Per-device transmitter resolution; ownership decoupling; lifecycle edges closed. |
 | **PR4** | Docs + back-compat hardening | Update `ARCHITECTURE.md`, `SERVICES.md`, `README.md` (incl. Assist "expose new entities" note), `ROADMAP.md`; back-compat service tests; final PR-description deliverable. | Services still resolve/send post-refactor. |
 
 ### File map (added / changed)
@@ -491,6 +493,40 @@ before PR3b.**
   `_async_migrate_func` + fields + dispatcher emits), `__init__.py` service
   schemas (`add_device`/`update_device` for new fields), `manifest.json`
   (`infrared` dependency), `const.py` (new signal/field constants), docs.
+
+### PR3b implementation note (2026-06-17) — awaiting real-HA smoke
+
+Implemented locally:
+- `consumer.py` shared send path, transmitter/emitter resolution, registry
+  cleanup, common `ConsumerEntityManager`, and consumer entity DeviceInfo mixin.
+- `remote.py` now uses the shared consumer base; behavior covered by existing
+  remote tests.
+- `media_player.py` implements `MediaPlayerEntity` with capability-derived
+  features, `source_list`/`async_select_source`, optimistic state, RestoreEntity,
+  and honest power semantics (`explicit`, `toggle`, `none`).
+- `switch.py` implements pure on/off devices only, with assumed optimistic state.
+- `CONSUMER_PLATFORMS = [remote, media_player, switch]`; owner-only forwarding
+  and re-election lifecycle unchanged.
+
+Local verification: `.venv314` full pytest run passed (65 tests + 13 subtests);
+unittest discovery passed (30 tests in `.venv314`, 28 tests / 3 skipped in the
+base interpreter).
+
+Real-HA smoke checklist for PR3b:
+- Set a real device (for example the Sony receiver) to
+  `preferred_domain: media_player`; verify a `media_player.*` entity appears
+  without duplicate/orphan `remote.*`.
+- Verify features match learned command IDs: play/pause/stop/next/previous,
+  volume step, mute, source select, and power according to `power_mode`.
+- Send harmless real IR codes through play/pause/stop/volume/mute/source and
+  confirm they go through the infrared emitter.
+- Verify `async_select_source` updates the optimistic source and sends the
+  matching `source_*` command.
+- Verify `power_mode=none` does not expose turn_on/turn_off; `toggle` is assumed
+  and optimistic; `explicit` reaches true OFF.
+- Switch a pure power device to `preferred_domain: switch`; verify on/off/toggle
+  and lifecycle cleanup.
+- Test error paths through WS/UI or Developer Tools, not REST.
 - **Unchanged transport:** `zha_adapter.py`, `ir_formats/*`, `device_profiles.py`
   (extend profiles only if Step 0 requires a decoder).
 
@@ -631,6 +667,33 @@ transmitter installs unaffected). **Decision (2026-06-17): do NOT fix now.**
 Known multi-transmitter limitations are the documented owner-disable and
 registry-customization edge cases above; single-transmitter installs are
 unaffected.
+
+### Multi-transmitter PR (PR-MT) — scheduled after PR3b
+
+Today 2+ transmitters are **not usable** even though the config flow allows
+adding them. This PR makes them correct. Scope, in priority order:
+
+1. **Sending must resolve a transmitter per device (highest priority — this is
+   what actually breaks).** With >1 enabled transmitter, `resolve_transmitter(None)`
+   raises `transmitter_required` (`storage.py:119-123`), and existing devices
+   have `transmitter_id = None`. So adding a second transmitter **breaks IR send**
+   for every device until each gets an explicit `transmitter_id`, and there is no
+   UI for it (service `update_device` only). Fix: a usable assignment path —
+   per-device transmitter selector in the card/UI, and/or auto-assign to the sole
+   emitter at device creation, and a sensible default/error when ambiguous.
+2. **Decouple consumer-entity ownership from any transmitter config entry.** This
+   single refactor closes BOTH documented lifecycle edges at once (owner-disable
+   leaves consumer entities down; owner-removal purges entity customizations).
+   Approach: own consumer entities/devices via a stable, hardware-independent
+   owner rather than "the first transmitter entry". Do not patch the two edges
+   separately, and do not re-introduce disable-vs-reload discrimination in
+   `async_unload_entry` (that would revive F1).
+3. **Mark multi-transmitter as supported in user docs** only once 1 & 2 land;
+   until then note it as experimental.
+
+Tests: per-device transmitter resolution (incl. ambiguous/stale id); ownership
+decoupling survives owner disable/removal without losing entities or
+customizations; existing single-transmitter behavior unchanged.
 
 ### Carried-over notes from the PR1/PR2 review (address in PR3)
 

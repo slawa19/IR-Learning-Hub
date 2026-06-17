@@ -60,7 +60,7 @@ from .storage import IRRegistryStore
 from .zha_adapter import ZHAAdapter
 
 ENTRY_PLATFORMS = [Platform.SENSOR, Platform.INFRARED]
-CONSUMER_PLATFORMS = [Platform.REMOTE]
+CONSUMER_PLATFORMS = [Platform.REMOTE, Platform.MEDIA_PLAYER, Platform.SWITCH]
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_URL = "/ir_learning_hub/ir-learning-hub-card.js"
 FRONTEND_ICON_URL = "/ir_learning_hub/icon.png"

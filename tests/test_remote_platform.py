@@ -166,11 +166,11 @@ def test_consumer_send_uses_infrared_entity_registry_and_helper(monkeypatch) -> 
         },
     )()
     monkeypatch.setattr(
-        "custom_components.ir_learning_hub.remote.er.async_get",
+        "custom_components.ir_learning_hub.consumer.er.async_get",
         lambda hass: fake_registry,
     )
     monkeypatch.setattr(
-        "custom_components.ir_learning_hub.remote.infrared.async_send_command",
+        "custom_components.ir_learning_hub.consumer.infrared.async_send_command",
         send_mock,
     )
     store = FakeStore()
@@ -475,11 +475,11 @@ def test_remote_manager_reconcile_is_idempotent_and_removes_missing_entities(mon
 
     fake_entity_registry = FakeEntityRegistry()
     monkeypatch.setattr(
-        "custom_components.ir_learning_hub.remote.er.async_get",
+        "custom_components.ir_learning_hub.consumer.er.async_get",
         lambda hass: fake_entity_registry,
     )
     monkeypatch.setattr(
-        "custom_components.ir_learning_hub.remote.dr.async_get",
+        "custom_components.ir_learning_hub.consumer.dr.async_get",
         lambda hass: FakeDeviceRegistry(),
     )
     store.data["locations"]["living"]["devices"] = {}

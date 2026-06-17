@@ -1,11 +1,10 @@
-"""Remote consumer entities for IR Learning Hub."""
+"""Switch consumer entities for IR Learning Hub."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Any
 
-from homeassistant.components.remote import RemoteEntity
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
@@ -16,13 +15,12 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .consumer import (
     ConsumerEntityManager,
     RegistryBackedConsumerEntity,
-    async_send_registry_command,
     async_setup_consumer_platform,
 )
 from .registry_runtime import EntitySpec
 from .storage import IRRegistryStore
 
-REMOTE_DOMAIN = "remote"
+SWITCH_DOMAIN = "switch"
 
 
 async def async_setup_entry(
@@ -30,26 +28,26 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up registry-backed remote entities for the consumer owner entry."""
+    """Set up registry-backed switch entities for the owner entry."""
     await async_setup_consumer_platform(
         hass,
         entry,
         async_add_entities,
-        manager_key="remote_manager",
-        platform_domain=REMOTE_DOMAIN,
-        entity_factory=IRLearningHubRemoteEntity,
+        manager_key="switch_manager",
+        platform_domain=SWITCH_DOMAIN,
+        entity_factory=IRLearningHubSwitchEntity,
     )
 
 
-class IRLearningHubRemoteEntity(RegistryBackedConsumerEntity, RemoteEntity, RestoreEntity):
-    """Remote entity backed by stored IR commands."""
+class IRLearningHubSwitchEntity(RegistryBackedConsumerEntity, SwitchEntity, RestoreEntity):
+    """Switch entity backed by stored IR commands."""
 
     def __init__(
         self,
         store: IRRegistryStore,
         spec: EntitySpec,
     ) -> None:
-        """Initialize the remote."""
+        """Initialize the switch."""
         self._is_on = False
         super().__init__(store, spec)
 
@@ -62,23 +60,23 @@ class IRLearningHubRemoteEntity(RegistryBackedConsumerEntity, RemoteEntity, Rest
 
     @property
     def is_on(self) -> bool:
-        """Return the assumed power state."""
+        """Return the assumed on/off state."""
         return self._is_on
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the remote device on."""
+        """Turn the switch on."""
         await self._send_power_command("power_on", "power_toggle")
         self._is_on = True
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the remote device off."""
+        """Turn the switch off."""
         await self._send_power_command("power_off", "power_toggle")
         self._is_on = False
         self.async_write_ha_state()
 
     async def async_toggle(self, **kwargs: Any) -> None:
-        """Toggle the remote device."""
+        """Toggle the switch."""
         if "power_toggle" in self._spec.command_keys:
             await self.async_send_stored_command("power_toggle")
             self._is_on = not self._is_on
@@ -90,11 +88,6 @@ class IRLearningHubRemoteEntity(RegistryBackedConsumerEntity, RemoteEntity, Rest
             self._is_on = True
         self.async_write_ha_state()
 
-    async def async_send_command(self, command: Iterable[str], **kwargs: Any) -> None:
-        """Send one or more stored command ids."""
-        for command_id in command:
-            await self.async_send_stored_command(command_id)
-
     async def _send_power_command(self, *command_ids: str) -> None:
         for command_id in command_ids:
             if command_id in self._spec.command_keys:
@@ -105,8 +98,8 @@ class IRLearningHubRemoteEntity(RegistryBackedConsumerEntity, RemoteEntity, Rest
         )
 
 
-class RemoteEntityManager(ConsumerEntityManager):
-    """Runtime materializer for remote entities."""
+class SwitchEntityManager(ConsumerEntityManager):
+    """Runtime materializer for switch entities."""
 
     def __init__(
         self,
@@ -114,11 +107,11 @@ class RemoteEntityManager(ConsumerEntityManager):
         store: IRRegistryStore,
         async_add_entities: AddEntitiesCallback,
     ) -> None:
-        """Initialize the remote manager."""
+        """Initialize the switch manager."""
         super().__init__(
             hass,
             store,
             async_add_entities,
-            REMOTE_DOMAIN,
-            IRLearningHubRemoteEntity,
+            SWITCH_DOMAIN,
+            IRLearningHubSwitchEntity,
         )
