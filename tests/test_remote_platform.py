@@ -20,6 +20,7 @@ from custom_components.ir_learning_hub import (
     CONSUMER_PLATFORMS,
     ENTRY_PLATFORMS,
     REGISTERED_SERVICES,
+    _register_services,
     resolve_transmitter_ref,
     async_setup_entry,
     async_remove_entry,
@@ -85,9 +86,20 @@ class FakeConfigEntries:
 class FakeServices:
     def __init__(self) -> None:
         self.removed = []
+        self.registered = {}
 
     def async_remove(self, domain, service):
         self.removed.append((domain, service))
+
+    def async_register(
+        self,
+        domain,
+        service,
+        callback,
+        schema=None,
+        supports_response=None,
+    ):
+        self.registered[(domain, service)] = callback
 
 
 class FakeHass:
@@ -569,6 +581,54 @@ def test_resolved_entity_id_can_be_saved_as_canonical_transmitter_id(monkeypatch
     )
 
     assert store.data["locations"]["living"]["devices"]["tv"]["transmitter_id"] == "0011"
+
+
+def test_update_device_service_can_clear_transmitter_id() -> None:
+    update_device = AsyncMock()
+    store = type(
+        "Store",
+        (),
+        {
+            "resolve_transmitter": lambda self, transmitter_id=None: {"ieee": "00:11"},
+            "update_device": update_device,
+        },
+    )()
+    hass = FakeHass(
+        {
+            "store": store,
+            "adapter": object(),
+            "status": type("Status", (), {"async_set": lambda self, *args, **kwargs: None})(),
+            "learn_tasks": {},
+        }
+    )
+
+    _register_services(hass)
+    callback = hass.services.registered[(DOMAIN, "update_device")]
+
+    asyncio.run(
+        callback(
+            type(
+                "Call",
+                (),
+                {
+                    "data": {
+                        "location_id": "living",
+                        "ir_device_id": "tv",
+                        "transmitter_id": "",
+                    }
+                },
+            )()
+        )
+    )
+
+    update_device.assert_awaited_once_with(
+        "living",
+        "tv",
+        name=None,
+        device_type=None,
+        preferred_domain=None,
+        transmitter_id="",
+    )
 
 
 def test_remote_manager_coalesces_trailing_edge_reconcile(monkeypatch) -> None:

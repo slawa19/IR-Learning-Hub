@@ -708,7 +708,7 @@ def _register_services(hass: HomeAssistant) -> None:
                 transmitter_id = (
                     resolve_transmitter_ref(hass, store, raw_transmitter_id)
                     if raw_transmitter_id
-                    else None
+                    else ""
                 )
             await store.update_device(
                 call.data[FIELD_LOCATION_ID],
