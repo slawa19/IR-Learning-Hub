@@ -16,7 +16,9 @@ The integration is intentionally local-first. It uses Home Assistant's native ZH
 - Organizes commands as `Location -> IR device -> Command`.
 - Exposes a stable Home Assistant service API for automations, scripts, and Developer Tools.
 - Exposes each configured TS1201 as a native Home Assistant `infrared` emitter entity.
-- Exposes registry IR devices as native Home Assistant `remote` entities that send through the emitter.
+- Exposes registry IR devices as native Home Assistant `remote`, `media_player`, and `switch` entities that send through the emitter — directly usable by Assist, voice, and the LLM API.
+- Infers `media_player`/`switch` capabilities from an explicit per-command `feature` role, so any command naming works.
+- Supports multiple transmitters via the canonical hub + config-subentries model.
 - Provides a bundled Lovelace card for day-to-day use.
 - Supports command rename, relearn, delete, and optional `mdi:*` icons without replacing the stored IR code.
 - Exports and imports one device profile as JSON, so a command set can be moved to another logical remote without relearning.
@@ -24,19 +26,19 @@ The integration is intentionally local-first. It uses Home Assistant's native ZH
 
 ## Current State
 
-IR Learning Hub `v0.2.0` is a functional Home Assistant custom integration for the confirmed TS1201 / MOES UFO-R11 ZHA path.
+IR Learning Hub `v0.3.0` is a functional Home Assistant custom integration for the confirmed TS1201 / MOES UFO-R11 ZHA path.
 
 Release metadata:
 
 ```json
-{ "version": "0.2.0" }
+{ "version": "0.3.0" }
 ```
 
-Current release tag: `v0.2.0`.
+Current release tag: `v0.3.0`.
 
 The implemented flow covers the full command lifecycle:
 
-1. Select a supported ZHA transmitter in the config flow.
+1. Set up the hub and its first transmitter in the config flow (add more transmitters later as config subentries).
 2. Create locations and IR devices.
 3. Learn a command from a physical remote.
 4. Test the captured IR code.
@@ -48,7 +50,9 @@ Saved commands survive Home Assistant restarts because they are stored through H
 
 The integration currently targets one confirmed hardware/profile combination. The architecture keeps the transport layer isolated so additional ZHA IR transmitter profiles can be added later without changing the registry, UI model, or entity projection.
 
-`media_player` and `switch` entities are not shipped yet. The current entity-first release exposes the physical emitter plus generic `remote` entities; media-player and switch projections are planned as follow-up work.
+`remote`, `media_player`, and `switch` consumer entities are all shipped. The
+domain is chosen per device from its `preferred_domain` and the capabilities
+inferred from each command's `feature` role.
 
 ## Supported Hardware
 
@@ -127,20 +131,24 @@ The Lovelace card is built on top of the same services that automations and scri
 
 ## Native Entities
 
-Starting with `v0.2.0`, IR Learning Hub also creates Home Assistant entities:
+IR Learning Hub creates Home Assistant entities:
 
-- one `infrared` emitter entity for each configured TS1201 transmitter;
-- one `remote` entity for each registry IR device that resolves to the remote domain.
+- one `infrared` emitter entity per transmitter (config subentry);
+- one consumer entity per registry IR device — `remote`, `media_player`, or `switch`, chosen from the device's `preferred_domain` and capabilities.
 
 The send path is:
 
 ```text
-remote entity -> Home Assistant infrared helper -> IR Learning Hub emitter -> ZHA TS1201 transport
+remote / media_player / switch -> Home Assistant infrared helper -> IR Learning Hub emitter -> ZHA TS1201 transport
 ```
 
-Consumer entities do not call ZHA directly. They resolve a stored `command_id`, wrap the stored `zosung_base64` code, and send it through the emitter entity.
+Consumer entities do not call ZHA directly. They resolve the stored code, wrap it as a `zosung_base64` payload, and send through the emitter entity.
 
-Use the usual Home Assistant `remote.turn_on`, `remote.turn_off`, `remote.toggle`, and `remote.send_command` services. `remote.send_command` expects stored `command_id` values, not display labels.
+- `remote`: `remote.send_command` expects stored `command_id` values (raw passthrough), not display labels; plus `remote.turn_on/off/toggle`.
+- `media_player`: standard `media_player.*` services; features and `source_list` are built from each command's `feature` role (`media_player.select_source` takes the source label).
+- `switch`: on/off for pure power devices.
+
+Capabilities come from an explicit per-command **`feature`** role (e.g. `play`, `volume_up`, `source`, `power_toggle`), set when saving a command or via `ir_learning_hub.update_command` / the Lovelace card. The free-text `command_id` is never interpreted, so any naming works. See [docs/SERVICES.md](docs/SERVICES.md) for the role vocabulary.
 
 Power state is assumed because IR has no feedback channel. A device with only `power_toggle` can become out of sync if it is changed outside Home Assistant.
 
@@ -178,7 +186,7 @@ Add this repository as a HACS custom repository with category `Integration`:
 https://github.com/slawa19/IR-Learning-Hub
 ```
 
-Install release `v0.2.0` or newer, then restart Home Assistant.
+Install release `v0.3.0` or newer, then restart Home Assistant.
 
 ### Lovelace Resource
 
@@ -191,12 +199,16 @@ type: module
 
 After updating the integration, restart Home Assistant. The card script is served without long-lived cache headers, so the browser should pick up the new version without changing the resource URL.
 
-For live systems updating from `0.1.x` to `0.2.0`, verify after restart that:
+When updating a live system to `0.3.0`, a one-time migration reshapes the old
+one-entry-per-transmitter setup into a single hub entry with transmitter
+subentries. Learned commands are preserved (the registry store is untouched; the
+migration only changes config-entry shape). Verify after restart that:
 
-1. the existing `sensor.ir_learning_hub_status` still exists;
-2. each configured TS1201 has an `infrared` entity;
-3. each registry IR device has a `remote` entity;
-4. existing `ir_learning_hub.*` services still send saved commands.
+1. the integration shows one "IR Learning Hub" entry with a transmitter subentry;
+2. the existing `sensor.ir_learning_hub_status` still exists;
+3. each transmitter has an `infrared` emitter entity;
+4. each registry IR device has its consumer entity (`remote`/`media_player`/`switch`);
+5. existing `ir_learning_hub.*` services still send saved commands.
 
 ## Basic Usage
 
@@ -219,12 +231,12 @@ Service-only flow:
 4. If the target device responds, save it with `ir_learning_hub.save_command` and `verified: true`.
 5. Replay the saved command with `ir_learning_hub.send_command`.
 
-Native remote entity flow:
+Native entity flow:
 
-1. Create or import a registry IR device and commands.
-2. Restart or wait for the registry update signal to materialize the `remote` entity.
-3. Use `remote.send_command` with a saved `command_id`, for example `power_toggle`.
-4. Optionally expose the remote entity to Assist in Home Assistant voice settings.
+1. Create or import a registry IR device and commands; set each command's `feature` role (in the card or via `update_command`).
+2. The consumer entity (`remote`/`media_player`/`switch`) materializes immediately on the registry update signal — no restart needed.
+3. Control it with the standard domain services (`media_player.*`, `remote.send_command`, `switch.*`).
+4. Optionally expose the entity to Assist in Home Assistant voice settings.
 
 Example `save_command` data:
 
@@ -317,21 +329,26 @@ SmartIR-compatible export and additional transmitter transports may be considere
 	custom_components/ir_learning_hub/
 	__init__.py              # integration setup, services, frontend paths
 	brand/                   # integration brand assets
-	capabilities.py          # pure command capability inference helpers
-	config_flow.py           # setup flow and ZHA transmitter discovery
+	capabilities.py          # pure capability inference from command feature roles
+	config_flow.py           # hub config flow + transmitter subentry flow
 	const.py                 # constants and service names
+	consumer.py              # shared consumer-entity base, manager, send helpers
 	device_profiles.py       # supported transmitter profile definitions
 	errors.py                # localized integration error type
 	icon.png                 # local Home Assistant integration icon
-	infrared.py              # infrared emitter entity platform
+	infrared.py              # infrared emitter entity platform (per subentry)
 	ir_command.py            # opaque Zosung command wrapper
+	media_player.py          # registry-backed media_player consumer entities
 	registry_runtime.py      # pure registry-to-entity projection helpers
 	remote.py                # registry-backed remote consumer entities
 	sensor.py                # diagnostic status sensor platform
 	services.yaml            # service field structure for Home Assistant
 	status.py                # in-memory status model
 	storage.py               # Store-backed command registry
+	storage_migration.py     # pure storage migrations (v1..v4)
+	switch.py                # registry-backed switch consumer entities
 	strings.json             # English source strings for HA translations
+	transmitter_identity.py  # canonical transmitter id normalization
 	translations/            # backend translations
 	ir_formats/              # pure IR format/protocol conversion helpers
 	zha_adapter.py           # ZHA learn/read/send adapter

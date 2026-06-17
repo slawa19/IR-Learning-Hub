@@ -61,10 +61,10 @@ Use category `Integration`.
 
 Install the latest available release, restart Home Assistant, then add the integration from `Settings -> Devices & services`.
 
-For the entity-first release, install `v0.2.0` or newer. The integration manifest should contain:
+For the entity-first release, install `v0.3.0` or newer. The integration manifest should contain:
 
 ```json
-{ "version": "0.2.0" }
+{ "version": "0.3.0" }
 ```
 
 ## Add the Integration
@@ -73,9 +73,9 @@ For the entity-first release, install `v0.2.0` or newer. The integration manifes
 2. Go to `Settings -> Devices & services`.
 3. Select `Add integration`.
 4. Search for `IR Learning Hub`.
-5. Select the detected ZHA IR transmitter.
+5. Select the detected ZHA IR transmitter. This creates the hub and its first transmitter.
 
-The config flow scans Home Assistant's ZHA device registry and lists devices that expose the supported IR control cluster. The saved configuration uses the selected device's own IEEE, endpoint, and cluster values.
+The config flow scans Home Assistant's ZHA device registry and lists devices that expose the supported IR control cluster. The saved configuration uses the selected device's own IEEE, endpoint, and cluster values. The integration is created as a single hub; add further transmitters later from the hub's "Add transmitter" subentry flow.
 
 If your transmitter is not listed, choose manual setup and enter the values from the ZHA device details. The confirmed TS1201 / Zosung profile uses:
 
@@ -140,19 +140,19 @@ You can also validate through the Lovelace card:
 
 ## Updating
 
-### HACS update to `v0.2.0`
+### HACS update to `v0.3.0`
 
 1. In HACS, open `IR Learning Hub`.
-2. Install release `v0.2.0` or newer.
+2. Install release `v0.3.0` or newer.
 3. Restart Home Assistant.
 4. Reload the dashboard in the browser.
 5. Open `Settings -> Devices & services -> Entities` and verify the new entities.
 
 If HACS still shows an older version, reload HACS data and check for the latest release again.
 
-### Manual update to `v0.2.0`
+### Manual update to `v0.3.0`
 
-1. Download or checkout tag `v0.2.0`.
+1. Download or checkout tag `v0.3.0`.
 2. Replace the files under:
 
    ```text
@@ -162,7 +162,7 @@ If HACS still shows an older version, reload HACS data and check for the latest 
 3. Confirm the installed manifest says:
 
    ```json
-   { "version": "0.2.0" }
+   { "version": "0.3.0" }
    ```
 
 4. Restart Home Assistant.
@@ -170,17 +170,21 @@ If HACS still shows an older version, reload HACS data and check for the latest 
 
 ### Post-update validation
 
-After updating from `0.1.x` to `0.2.0`, check:
+Updating to `v0.3.0` runs a one-time migration that reshapes the old
+one-entry-per-transmitter setup into a single hub entry with transmitter
+subentries. Learned commands are preserved (the registry store is untouched).
+After restart, check:
 
-1. The existing status sensor still exists:
+1. The integration shows one `IR Learning Hub` entry with a transmitter subentry.
+2. The existing status sensor still exists:
 
    ```text
    sensor.ir_learning_hub_status
    ```
 
-2. Each configured TS1201 transmitter has a native `infrared` entity.
-3. Each registry IR device has a native `remote` entity.
-4. Existing services still work, especially:
+3. Each transmitter has a native `infrared` emitter entity.
+4. Each registry IR device has its consumer entity (`remote` / `media_player` / `switch`).
+5. Existing services still work, especially:
 
    ```text
    ir_learning_hub.send_command

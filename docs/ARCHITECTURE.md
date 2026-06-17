@@ -17,19 +17,36 @@ IR Learning Hub is a Home Assistant custom integration that wraps native ZHA ope
 ```text
 Tuya TS1201 / MOES UFO-R11
   -> ZHA + zhaquirks.tuya.ts1201.ZosungIRBlaster
-  -> IR Learning Hub infrared emitter entity
   -> IR Learning Hub ZHA adapter
-  -> IR Learning Hub services and Store-backed registry
-  -> Lovelace card / HA services / remote entities / automations / scripts / agents
+  -> IR Learning Hub infrared emitter entity (one per transmitter subentry)
+  -> consumer entities: remote / media_player / switch  (resolve command -> code)
+  -> Lovelace card / HA services / Assist / automations / scripts / agents
 ```
+
+## Config-entry model (hub + subentries)
+
+The integration is a **single hub config entry**. Each physical transmitter is a
+**config subentry** of type `transmitter`. This is the canonical Home Assistant
+"hub + sub-devices" shape:
+
+- the hub entry owns the store, services, status sensor, and the consumer
+  platforms (`remote` / `media_player` / `switch`) plus their virtual devices;
+- each `transmitter` subentry owns one `infrared` emitter entity and its device.
+
+Installs from before `0.3.0` (one config entry per transmitter) are migrated once
+into this shape at component startup; the registry store is never rewritten.
 
 ## Main Components
 
 ### `config_flow.py`
 
-Creates a config entry for a ZHA IR transmitter. The current profile is `ts1201_zosung`.
-
-The config entry stores transmitter connection parameters such as IEEE, endpoint, cluster, profile, learn timeout, and learn reassert interval.
+Creates the single hub config entry and seeds its first `transmitter` subentry
+(ZHA discovery, with manual setup as a fallback). The current profile is
+`ts1201_zosung`. `async_get_supported_subentry_types` exposes the
+`IRLearningHubTransmitterSubentryFlow` (`user` + `reconfigure` steps) for adding
+or editing transmitters; duplicate transmitters are blocked by a canonical
+subentry `unique_id`. Each subentry stores transmitter connection parameters
+(IEEE, endpoint, cluster, profile, learn timeout, reassert interval).
 
 ### `zha_adapter.py`
 
@@ -46,7 +63,8 @@ emitter entity.
 
 ### `infrared.py`
 
-Exposes one `InfraredEmitterEntity` per configured TS1201 transmitter.
+Exposes one `InfraredEmitterEntity` per `transmitter` subentry (added with that
+subentry's `config_subentry_id`).
 
 The emitter represents the physical transmitter, wraps the existing
 `ZHAAdapter`, and accepts opaque `ZosungCommand` payloads. It is the only entity
@@ -59,44 +77,87 @@ subclass carrying the stored opaque `zosung_base64` code. `get_raw_timings()` is
 not available for this opaque v1 command; full raw-timing interoperability is a
 future decoder task.
 
+### `capabilities.py`
+
+Pure capability inference from each command's explicit **`feature`** role (a
+closed vocabulary: `power_on/off/toggle`, `play`, `pause`, `play_pause_toggle`,
+`stop`, `next`, `previous`, `fast_forward`, `rewind`, `volume_up/down`,
+`mute/unmute/mute_toggle`, `source`). Inference reads `feature`, never the
+free-text `command_id`. The legacy command-id vocabulary now only seeds
+`feature` during migration.
+
 ### `registry_runtime.py`
 
-Pure Python registry projection logic. It converts store data into desired
-entity specs without Home Assistant imports, so domain selection and dynamic
-lifecycle decisions can be unit tested.
+Pure Python registry projection logic. Converts store data into desired entity
+specs (domain selection by `preferred_domain`/`type` + capabilities, and a
+`feature -> command_id` map) without Home Assistant imports, so projection and
+dynamic lifecycle decisions can be unit tested.
 
-### `remote.py`
+### `consumer.py`
 
-Exposes registry IR devices as Home Assistant `remote` entities.
+Shared base for all consumer platforms: the `ConsumerEntityManager` (dynamic
+add/update/remove with a trailing-edge reconcile so bursts of registry changes
+are never dropped, plus entity/device registry cleanup), the
+`RegistryBackedConsumerEntity` mixin (DeviceInfo with `via_device` to the
+emitter, assumed state), the send helpers, and transmitter resolution. Consumer
+entities call `infrared.async_send_command(hass, emitter_entity_id, command,
+context=...)` and never touch ZHA or the adapter directly.
 
-Remote entities resolve `command_id` strictly, wrap the stored code in
-`ZosungCommand`, and call:
+### `remote.py`, `media_player.py`, `switch.py`
 
-```text
-infrared.async_send_command(hass, emitter_entity_id, command, context=...)
-```
+Consumer platforms built on `consumer.py`:
 
-They do not talk to ZHA or the adapter directly. State is assumed because IR has
-no feedback path.
+- `remote.py` — `remote` entities; `remote.send_command` resolves literal
+  `command_id` values (raw passthrough escape hatch).
+- `media_player.py` — `media_player` entities; features and `source_list` are
+  built from inferred capabilities, and service calls resolve commands by
+  `feature` (`media_player.select_source` maps the source label back to its
+  command). Honest power semantics: no fake `OFF` when the device has no power
+  command.
+- `switch.py` — `switch` entities for pure on/off devices.
+
+All resolve commands strictly (by `feature` for media_player/switch, by literal
+id for `remote.send_command`), wrap the stored code in `ZosungCommand`, and send
+through the emitter. State is assumed because IR has no feedback path.
+
+### `transmitter_identity.py`
+
+Normalizes any transmitter reference (canonical key, IEEE, or emitter
+`entity_id`) to the single canonical key (`normalize_ieee(ieee)`). Used by
+write-path validation and migration so `device.transmitter_id` is always stored
+as the canonical key.
+
+### `storage_migration.py`
+
+Pure storage migrations: v1→v2 (entity-projection fields), v2→v3 (seed command
+`feature` from canonical legacy ids), v3→v4 (canonicalize stored
+`transmitter_id`).
 
 ### `storage.py`
 
 Owns persistent registry state using Home Assistant `Store`.
 
-The current store contains transmitter metadata and user command registry data:
+The current store (schema v4) contains transmitter metadata and user command
+registry data:
 
 ```json
 {
-  "version": 2,
+  "version": 4,
   "transmitters": {},
   "locations": {}
 }
 ```
 
 Locations contain IR devices, and IR devices contain commands. Devices may also
-store `preferred_domain` and `transmitter_id` for entity projection and
-multi-transmitter routing. Saved command codes are treated as opaque
+store `preferred_domain` and a canonical `transmitter_id` for entity projection
+and multi-transmitter routing. Commands may carry an explicit `feature` role
+(consumed by capability inference). Saved command codes are treated as opaque
 `zosung_base64` payloads by the send path.
+
+The store is independent of config entries/subentries — it is keyed by the
+canonical transmitter id and survives entry/subentry changes. On setup the
+integration reconciles stored transmitter records against existing subentries
+and drops orphans.
 
 Commands may also contain optional display metadata such as `icon` and optional
 `source` provenance for generated/imported commands. This metadata is
@@ -118,13 +179,17 @@ TS1201 sends one continuous timing payload per command.
 
 ### `__init__.py`
 
-Initializes runtime state, registers services, forwards per-entry platforms
-(`sensor`, `infrared`), forwards consumer platforms (`remote`) for one owner
-entry, serves the bundled card, and coordinates status updates.
+Component-level `async_setup` runs the one-time legacy→hub migration. The hub
+entry's `async_setup_entry` initializes runtime state (store, status, adapter),
+registers services, upserts each `transmitter` subentry into the store, registers
+emitter devices, reconciles orphaned transmitters, serves the bundled card, and
+forwards **all** platforms (`sensor`, `infrared`, `remote`, `media_player`,
+`switch`). A subentry-change update listener reloads the hub so emitters track
+added/removed transmitters.
 
-When the consumer owner entry unloads while other transmitter entries remain,
-ownership moves to another entry and Home Assistant is asked to reload that
-entry so consumer platforms come up through the normal setup flow.
+There is no owner-election: consumer platforms always live on the single hub
+entry, and emitters live on their transmitter subentries. The earlier
+owner-election/lifecycle machinery was removed by the hub+subentries restructure.
 
 ### `sensor.py` and `status.py`
 
@@ -208,15 +273,17 @@ Profile export/import is a UI-level portability helper. The exported JSON contai
 The entity-first path is:
 
 ```text
-remote entity
+remote / media_player / switch entity   (resolve feature or command_id -> stored code)
   -> Home Assistant infrared helper
      -> IR Learning Hub emitter entity
         -> ZHAAdapter
            -> ZHA / TS1201
 ```
 
-`remote.send_command` accepts registry `command_id` values. Display labels are
-never used for command resolution.
+`media_player`/`switch` resolve commands by their canonical `feature` role;
+`remote.send_command` resolves literal registry `command_id` values. Display
+labels are never used for command resolution (except the media_player source
+label, which maps back to its `source` command).
 
 ## Deferred Architecture
 
@@ -226,7 +293,6 @@ The following are intentionally outside the current MVP:
 - SmartIR export;
 - Zigbee2MQTT transport;
 - Tuya Cloud transport;
-- media_player and switch consumer entities;
 - automatic IR code database lookup;
 - bundled public IR code database;
 - climate entities.

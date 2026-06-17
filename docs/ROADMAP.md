@@ -19,23 +19,22 @@ This roadmap describes the intended direction of the project. It is not a releas
 - Sony SIRC generation through `generate_code`, validated on Sony STR-DB840 power control.
 - Local utility for generating a Sony STR-DB840 card-import profile.
 - Native Home Assistant `infrared` emitter entities for configured TS1201 transmitters.
-- Registry-backed native `remote` entities for stored IR devices.
-- Entity-first registry projection foundation with command capability inference.
+- Registry-backed native `remote`, `media_player`, and `switch` consumer entities.
+- Entity-first registry projection with explicit per-command `feature` roles and capability inference.
+- Multiple transmitters via the hub + config-subentries model.
+- Canonical transmitter identity (normalization, validation, orphan reconciliation).
+- Real Home Assistant 2026.6.x validation with a TS1201 blaster: migration, entity exposure, and physical IR sends confirmed.
 
 ## MVP Hardening
 
-- Run a real Home Assistant 2026.6.x smoke test for one and two transmitters,
-  including owner unload/re-election and entity send through the infrared helper.
 - Improve user-facing error messages in the card.
-- Add automated tests for storage and service validation.
+- Add a card affordance for assigning command `feature` roles in bulk.
 - Add compatibility notes for specific Home Assistant versions.
-- Add screenshots or short workflow captures.
+- Add screenshots or short workflow captures of the entity/Assist flow.
+- Live-verify the multi-transmitter UI flow (add/remove a second transmitter subentry) and N>=2 migration.
 
 ## Post-MVP Candidates
 
-- Native `media_player` entities for AV devices inferred from command IDs.
-- Native `switch` entities for pure on/off IR devices.
-- Multiple transmitter UX.
 - SmartIR-compatible export for portability.
 - Additional ZHA IR transmitter profiles.
 - Optional Zigbee2MQTT transport adapter.

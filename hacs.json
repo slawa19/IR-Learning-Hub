@@ -2,6 +2,6 @@
   "name": "IR Learning Hub",
   "render_readme": true,
   "hide_default_branch": true,
-  "domains": ["zha", "infrared", "remote"],
+  "domains": ["zha", "infrared", "remote", "media_player", "switch"],
   "homeassistant": "2026.6.0"
 }

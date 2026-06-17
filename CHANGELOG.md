@@ -8,6 +8,44 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.3.0 - 2026-06-17
+
+### Added
+
+- Added native `media_player` consumer entities for AV devices, with features
+  (play/pause/stop/next/previous, volume step, mute, source select) derived from
+  each command's explicit role. `media_player.select_source` resolves the source
+  by its human-readable label.
+- Added native `switch` consumer entities for pure on/off IR devices.
+- Added an explicit per-command `feature` role (closed vocabulary such as
+  `power_on`, `play`, `volume_up`, `source`). Capabilities are now inferred from
+  this role, not from free-text `command_id`, so any command naming works. A v3
+  storage migration seeds the role from canonical legacy command IDs.
+- Multi-transmitter support via the canonical Home Assistant model: the
+  integration is now a **single hub config entry**, and each transmitter is a
+  **config subentry** with its own emitter. Add/remove transmitters from the hub.
+
+### Changed
+
+- Restructured to one hub config entry + transmitter subentries, removing the
+  earlier owner-election machinery. A one-time migration reshapes legacy
+  one-entry-per-transmitter installs into the hub model; learned commands are
+  preserved (the registry store is untouched).
+- Canonical transmitter identity: `transmitter_id` references are normalized and
+  validated on write (accepting the canonical key, IEEE, or emitter entity id);
+  orphaned transmitter records are reconciled against existing subentries.
+- `update_command` now also sets a command's `feature` role.
+- `media_player`/`switch`/`remote` consumer entities share a common base and
+  refresh immediately on registry changes (no extra service call needed).
+
+### Notes
+
+- Validated on real Home Assistant 2026.6.x with a TS1201/Zosung blaster:
+  migration, entity exposure, and real IR sends (media_player and remote) were
+  confirmed against physical devices.
+- Assist/LLM exposure remains Home Assistant policy controlled — enable entity
+  exposure in voice assistant settings to use the new entities with Assist.
+
 ## 0.2.0 - 2026-06-16
 
 ### Added

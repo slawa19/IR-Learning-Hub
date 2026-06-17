@@ -163,9 +163,10 @@ runtime still sends the stored opaque `code`.
 
 ### `ir_learning_hub.update_command`
 
-Updates a saved command's display metadata without relearning or replacing its IR code.
+Updates a saved command's display metadata and/or semantic role without
+relearning or replacing its IR code.
 
-At least one of `name` or `icon` is required.
+At least one of `name`, `icon`, or `feature` is required.
 
 ```yaml
 location_id: cabinet
@@ -173,7 +174,23 @@ ir_device_id: cd_player
 command_id: open_close
 name: Tray Open/Close
 icon: mdi:eject
+feature: play
 ```
+
+`feature` assigns the command's **semantic role** from the closed vocabulary
+below. It is what `media_player`/`switch` capabilities are inferred from, so it
+must be set for those entities to expose play/pause/source/etc. — the
+`command_id` text is never interpreted. Use an empty string to clear the role.
+
+```text
+power_on  power_off  power_toggle
+play  pause  play_pause_toggle  stop  next  previous  fast_forward  rewind
+volume_up  volume_down  mute  unmute  mute_toggle
+source
+```
+
+Every command with `feature: source` becomes a selectable input; its display
+`name` is the label shown in the media player's `source_list`.
 
 Use an empty icon string to clear the stored icon:
 
@@ -208,12 +225,17 @@ Returns:
 status: sent
 ```
 
-## Native Remote Entities
+## Native Entities
 
-Starting with `v0.2.0`, registry IR devices are also exposed as Home Assistant
-`remote` entities.
+Registry IR devices are exposed as native Home Assistant entities, selected by
+the device's `preferred_domain` (and capabilities):
 
-Use Home Assistant's normal remote services:
+- `remote` — generic devices and the raw-passthrough escape hatch;
+- `media_player` — AV devices; features and `source_list` come from each
+  command's `feature` role;
+- `switch` — pure on/off devices.
+
+### Remote
 
 ```yaml
 service: remote.send_command
@@ -223,16 +245,33 @@ data:
   command: power_toggle
 ```
 
-`command` must be a stored `command_id`, such as `power_toggle`,
-`volume_up`, or `source_hdmi_1`. Display names are not used for command
-resolution.
+`command` must be a stored `command_id`. `remote.send_command` is a raw
+passthrough — it uses the literal stored id, not the display label.
 
-The entity send path goes through the Home Assistant infrared helper and the IR
-Learning Hub emitter entity. It does not call ZHA directly from the consumer
-entity.
+### Media player
 
-Remote power state is assumed. With only `power_toggle`, Home Assistant cannot
-know whether the physical device is truly on or off after manual changes.
+Use the standard `media_player.*` services. Capabilities depend on which command
+`feature` roles exist on the device (e.g. `play` → PLAY, `volume_up`/`down` →
+VOLUME_STEP, any `source` → SELECT_SOURCE). `media_player.select_source` takes a
+**source label** (the `name` of a `feature: source` command):
+
+```yaml
+service: media_player.select_source
+target:
+  entity_id: media_player.cabinet_sony_receiver
+data:
+  source: "Tuner / FM-AM"
+```
+
+Power semantics are honest: with only `power_toggle` the player is
+`assumed_state` and cannot guarantee true on/off; with no power command it does
+not advertise turn on/off.
+
+### General
+
+All consumer entities send through the Home Assistant infrared helper and the IR
+Learning Hub emitter entity. They do not call ZHA directly. State is assumed
+because IR has no feedback channel.
 
 ## Registry Management
 
@@ -247,6 +286,11 @@ Returns the saved registry.
 Example response:
 
 ```yaml
+transmitters:
+  - key: b0e8e8fffe16ef35
+    ieee: "b0:e8:e8:ff:fe:16:ef:35"
+    name: IR transmitter b0:e8:e8:ff:fe:16:ef:35
+    enabled: true
 locations:
   cabinet:
     name: Cabinet
@@ -254,10 +298,13 @@ locations:
       cd_player:
         name: CD Player
         type: generic
+        preferred_domain: remote
+        transmitter_id: b0e8e8fffe16ef35
         commands:
           open_close:
             name: Open/Close
             icon: mdi:eject
+            feature: play
             code: "<base64-code>"
             format: zosung_base64
             verified: true
@@ -266,6 +313,9 @@ locations:
               protocol: sony_sirc
             updated_at: "2026-06-09T16:42:00+00:00"
 ```
+
+The response includes a sanitized `transmitters` list so configured emitters
+(and any orphaned records) are observable.
 
 ### `ir_learning_hub.add_location`
 
@@ -285,12 +335,14 @@ preferred_domain: remote
 transmitter_id: "0011223344556677"
 ```
 
-`preferred_domain` may be `auto`, `media_player`, `remote`, or `switch`.
-In `v0.2.0`, `remote` entities are implemented; `media_player` and `switch`
-projection are planned follow-ups.
+`preferred_domain` may be `auto`, `media_player`, `remote`, or `switch` — all are
+implemented. `auto` picks a domain from `type` and inferred capabilities;
+`switch` is only honored for pure on/off devices.
 
-`transmitter_id` selects the emitter used for this virtual IR device when more
-than one transmitter is configured.
+`transmitter_id` selects the emitter for this device when more than one
+transmitter is configured. It is normalized and validated on write (accepts the
+canonical key, an IEEE with colons, or the emitter `entity_id`); an unknown value
+is rejected. Omit it with a single transmitter.
 
 ### `ir_learning_hub.update_device`
 
@@ -317,14 +369,18 @@ Use an empty `transmitter_id` to clear the stored transmitter assignment.
 
 ### `ir_learning_hub.add_command`
 
-Creates an empty command placeholder.
+Creates an empty command placeholder. Accepts an optional `feature` role.
 
 ```yaml
 location_id: cabinet
 ir_device_id: cd_player
 command_id: open_close
 name: Open/Close
+feature: play
 ```
+
+`save_command` also accepts an optional `feature` (see `update_command` for the
+role vocabulary).
 
 ### `ir_learning_hub.rename_location`
 
@@ -379,11 +435,18 @@ ir_device_id: cd_player
 command_id: open_close
 ```
 
-## Optional Transmitter ID
+## Transmitters and `transmitter_id`
 
-Most services accept an optional `transmitter_id`. Omit it when only one transmitter is enabled.
+The integration is a single hub config entry; each physical transmitter is a
+config **subentry** with its own `infrared` emitter entity. Add or remove
+transmitters from the hub in Settings → Devices & Services.
 
-If multiple transmitters are enabled, pass the normalized transmitter ID. The current storage model normalizes IEEE addresses by removing colons and lowercasing the result.
+Transmitter-facing services (`learn`, `send_command`, `test_code`, etc.) accept
+an optional `transmitter_id`. Omit it when only one transmitter is enabled. With
+multiple transmitters, pass a reference that resolves to a transmitter — the
+canonical key (IEEE without colons, lowercased), an IEEE with colons, or the
+emitter `entity_id`. Per-device routing is set with `add_device`/`update_device`
+`transmitter_id`.
 
 ## Error Codes
 
