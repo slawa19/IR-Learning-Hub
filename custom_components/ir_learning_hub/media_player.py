@@ -66,11 +66,8 @@ def media_player_features(spec: EntitySpec) -> MediaPlayerEntityFeature:
 
 
 def source_command_for_name(spec: EntitySpec, source: str) -> str:
-    """Return the source_* command id for a human-readable source name."""
-    source_commands = {
-        name: command_id
-        for command_id, name in spec.capabilities.source_names.items()
-    }
+    """Return the stored source command id for a human-readable source name."""
+    source_commands = {name: command_id for command_id, name in spec.capabilities.source_names.items()}
     command_id = source_commands.get(source)
     if command_id is None:
         raise ServiceValidationError(
@@ -134,19 +131,19 @@ class IRLearningHubMediaPlayerEntity(
 
     async def async_media_play(self) -> None:
         """Send play command."""
-        await self.async_send_stored_command("play")
+        await self.async_send_feature_command("play")
         self._attr_state = STATE_PLAYING
         self.async_write_ha_state()
 
     async def async_media_pause(self) -> None:
         """Send pause command."""
-        await self.async_send_stored_command(_first_supported(self._spec, "pause", "play_pause_toggle"))
+        await self.async_send_feature_command(_first_supported(self._spec, "pause", "play_pause_toggle"))
         self._attr_state = STATE_PAUSED
         self.async_write_ha_state()
 
     async def async_media_play_pause(self) -> None:
         """Send play/pause toggle command."""
-        await self.async_send_stored_command(
+        await self.async_send_feature_command(
             _first_supported(self._spec, "play_pause_toggle", "pause", "play")
         )
         self._attr_state = (
@@ -156,25 +153,25 @@ class IRLearningHubMediaPlayerEntity(
 
     async def async_media_stop(self) -> None:
         """Send stop command."""
-        await self.async_send_stored_command("stop")
+        await self.async_send_feature_command("stop")
         self._attr_state = STATE_IDLE
         self.async_write_ha_state()
 
     async def async_media_next_track(self) -> None:
         """Send next-track command."""
-        await self.async_send_stored_command("next")
+        await self.async_send_feature_command("next")
 
     async def async_media_previous_track(self) -> None:
         """Send previous-track command."""
-        await self.async_send_stored_command("previous")
+        await self.async_send_feature_command("previous")
 
     async def async_volume_up(self) -> None:
         """Send volume-up command."""
-        await self.async_send_stored_command("volume_up")
+        await self.async_send_feature_command("volume_up")
 
     async def async_volume_down(self) -> None:
         """Send volume-down command."""
-        await self.async_send_stored_command("volume_down")
+        await self.async_send_feature_command("volume_down")
 
     async def async_mute_volume(self, mute: bool) -> None:
         """Send mute or unmute command."""
@@ -182,7 +179,7 @@ class IRLearningHubMediaPlayerEntity(
             command_id = _first_supported(self._spec, "mute", "mute_toggle")
         else:
             command_id = _first_supported(self._spec, "unmute", "mute_toggle")
-        await self.async_send_stored_command(command_id)
+        await self.async_send_feature_command(command_id)
         self._attr_is_volume_muted = mute
         self.async_write_ha_state()
 
@@ -196,10 +193,10 @@ class IRLearningHubMediaPlayerEntity(
     async def _send_power(self, explicit_command_id: str) -> None:
         power_mode = self._spec.capabilities.power_mode
         if power_mode == "explicit":
-            await self.async_send_stored_command(explicit_command_id)
+            await self.async_send_feature_command(explicit_command_id)
             return
         if power_mode == "toggle":
-            await self.async_send_stored_command("power_toggle")
+            await self.async_send_feature_command("power_toggle")
             return
         raise ServiceValidationError(
             f"IR device {self._spec.device_identifier} has no supported power command"
@@ -227,7 +224,7 @@ class MediaPlayerEntityManager(ConsumerEntityManager):
 
 def _first_supported(spec: EntitySpec, *command_ids: str) -> str:
     for command_id in command_ids:
-        if command_id in spec.command_keys:
+        if command_id in spec.feature_keys:
             return command_id
     raise ServiceValidationError(
         f"IR device {spec.device_identifier} has no supported command among {command_ids}"

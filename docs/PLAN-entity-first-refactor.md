@@ -479,8 +479,9 @@ before PR3b.**
 | **PR1** ✅ | Storage foundation | Step 1: store v2 migration via `_async_migrate_func`, `preferred_domain`/`transmitter_id` fields + `add_device`/`update_device` write path, `{DOMAIN}_registry_updated` dispatcher, `capabilities.py` (inference + alias map). No new entities. | Migration v1→v2; capability inference; alias normalization; new fields persisted via service. |
 | **PR2** ✅ | Infrared emitter platform | Step 2: `Platform.INFRARED`, `infrared.py` `InfraredEmitterEntity` wrapping `ZHAAdapter`, `ZosungCommand(Command)`, manifest `["zha","infrared"]`. | Emitter send forwards to adapter; one emitter per transmitter; `ZosungCommand` carries opaque code. |
 | **PR3a** ✅ | Consumer spine (remote) | `registry_runtime.py` diff helper + `remote.py`; DeviceInfo + `via_device`; single-owner config entry + lifecycle (F1–F4 fixed via `async_remove_entry`); dynamic add/remove; RestoreEntity + assumed/optimistic; `ServiceValidationError`. Verified on real HA (1-transmitter). | Materialization; dynamic add/remove; command_id mapping; send + `ServiceValidationError`; lifecycle/cleanup; owner-removal re-election (unit). |
-| **PR3b** 🟡 | Consumer domains (media_player + switch) | `media_player.py` + `switch.py` on a shared consumer base extracted from `remote.py`; capability→features; source_list/select_source; honest off-semantics; cross-domain transition. Code implemented locally; awaiting real-HA smoke. | Capability→`MediaPlayerEntityFeature`; source reverse-map; service→command_id; off-semantics; optimistic+Restore; cross-domain move; existing tests green. |
-| **PR-MT** ⬜ | Multi-transmitter support | **After PR3b.** Make 2+ transmitters actually usable — see "Multi-transmitter PR" below. | Per-device transmitter resolution; ownership decoupling; lifecycle edges closed. |
+| **PR3b** 🟡 | Consumer domains (media_player + switch) | `media_player.py` + `switch.py` on a shared consumer base extracted from `remote.py`; honest off-semantics; cross-domain transition. Code works on real HA; capability detection fixed by PR3c. | Off-semantics; optimistic+Restore; cross-domain move; existing tests green. |
+| **PR3c** ✅ | Explicit command `feature` semantics | Replace "infer capability from `command_id` text" with an explicit per-command `feature` role. Includes stale-transmitter prune on entry removal and `ServiceValidationError` wrapping for transmitter resolution. Awaiting real-HA PR3b smoke re-run. | feature-based inference; v3 migration seeder; select_source by label; remote raw passthrough; existing tests green. |
+| **PR-MT** ⬜ | Multi-transmitter support | **After PR3b/PR3c.** Make 2+ transmitters usable — see "Multi-transmitter PR". | Per-device transmitter resolution; ownership decoupling; lifecycle edges closed. |
 | **PR4** | Docs + back-compat hardening | Update `ARCHITECTURE.md`, `SERVICES.md`, `README.md` (incl. Assist "expose new entities" note), `ROADMAP.md`; back-compat service tests; final PR-description deliverable. | Services still resolve/send post-refactor. |
 
 ### File map (added / changed)
@@ -521,7 +522,8 @@ Real-HA smoke checklist for PR3b:
 - Send harmless real IR codes through play/pause/stop/volume/mute/source and
   confirm they go through the infrared emitter.
 - Verify `async_select_source` updates the optimistic source and sends the
-  matching `source_*` command.
+  stored command whose `feature` is `source` and whose `name` matches the
+  selected source label.
 - Verify `power_mode=none` does not expose turn_on/turn_off; `toggle` is assumed
   and optimistic; `explicit` reaches true OFF.
 - Switch a pure power device to `preferred_domain: switch`; verify on/off/toggle
@@ -668,7 +670,64 @@ Known multi-transmitter limitations are the documented owner-disable and
 registry-customization edge cases above; single-transmitter installs are
 unaffected.
 
-### Multi-transmitter PR (PR-MT) — scheduled after PR3b
+### PR3b smoke-test findings (2026-06-17, real HA + real Sony receiver)
+
+- ✅ **Domain transition works** (remote→media_player via `update_device` with the
+  real `ir_device_id`, not the entity_id tail). No dupes.
+- 🔴 **Capability detection is wrong for real data.** `supported_features=1416`
+  = VOLUME_STEP|VOLUME_MUTE|TURN_ON|TURN_OFF only; **no PLAY/PAUSE/STOP/
+  SELECT_SOURCE and empty `source_list`**, even though the device has those
+  commands. Root cause: inference reads canonical `command_id` text, but the
+  registry's real ids are arbitrary (`tuner`, `cd`, `video_1`, … — no `source_`
+  prefix; play/pause/stop named differently too). → fixed by PR3c.
+- ✅ **Send crashed with `transmitter_required`/500.** A device with
+  `transmitter_id=null` + a **stale transmitter** still in the store (the fake
+  `00:00…99` from the Scenario B test — its config entry was removed but the
+  store record was never pruned) → `resolve_transmitter(None)` sees >1 → raises
+  `IRLearningHubError` (raw 500 over REST). → fixed by PR3c bundle (prune store
+  transmitter on entry removal + wrap as `ServiceValidationError`).
+
+### PR3c — explicit command `feature` semantics
+
+**Refines a Part-1 assumption:** "`command_id` is the stable semantic layer" is
+wrong — `command_id` is a user-authored arbitrary **identity**, so inferring
+capabilities from its text never generalizes. Canonical HA practice is to
+**declare capabilities explicitly.** Introduce a per-command semantic role.
+
+- **Model:** add optional `feature` to each command — a closed enum:
+  `power_on|power_off|power_toggle|play|pause|play_pause_toggle|stop|next|`
+  `previous|fast_forward|rewind|volume_up|volume_down|mute|unmute|mute_toggle|`
+  `source`. Sources collapse to `feature: source`; the command's `name` is its
+  `source_list` label (no `source_*` ids needed). Additive — no data loss.
+- **Migration (seed once):** pre-fill `feature` where `command_id` matches a
+  canonical token/alias; leave unset otherwise. The old vocabulary/alias map
+  moves here (seeder) + UI suggestions — **not** runtime inference.
+- **Inference (`capabilities.py`):** read **only** `feature` at runtime
+  (naming-independent, trivial).
+- **Write path:** `add/save/update_command` accept `feature` (validated);
+  Lovelace card gets a role selector + source label.
+- **`registry_runtime`/EntitySpec:** `command_keys` becomes `feature →
+  stored_command_id`; sources = `(command_id, label)` list where
+  `feature == source`.
+- **Consumers:** `media_player`/`switch` resolve by `feature`; `remote.send_command`
+  stays **raw passthrough by literal `command_id`** (the generic escape hatch).
+- **Tests:** feature-based inference; migration seeder (canonical → seeded,
+  arbitrary → unset); `select_source` by label; remote raw passthrough; existing
+  tests green.
+
+This makes the entity layer universal (any naming) and canonical (explicit
+capability declaration). After PR3c, re-run the PR3b smoke.
+
+**Implemented 2026-06-17.** Storage is v3; commands have optional `feature`;
+v3 migration seeds only recognized legacy ids/aliases and leaves arbitrary ids
+unset; runtime inference reads only `feature`; `remote.send_command` is raw
+literal `command_id` passthrough; media_player/switch resolve by feature;
+sources use `feature: source` with command `name` as the label; services and the
+Lovelace card expose a role selector; stale transmitter records are pruned on
+entry removal and transmitter resolution errors are wrapped as
+`ServiceValidationError`.
+
+### Multi-transmitter PR (PR-MT) — scheduled after PR3b/PR3c
 
 Today 2+ transmitters are **not usable** even though the config flow allows
 adding them. This PR makes them correct. Scope, in priority order:
@@ -681,6 +740,10 @@ adding them. This PR makes them correct. Scope, in priority order:
    UI for it (service `update_device` only). Fix: a usable assignment path —
    per-device transmitter selector in the card/UI, and/or auto-assign to the sole
    emitter at device creation, and a sensible default/error when ambiguous.
+   Also wrap the resolve failure as `ServiceValidationError` (not raw 500).
+1b. ✅ **Prune stale transmitter records from the store on entry removal.**
+   Implemented in PR3c bundle. Deleted transmitter entries no longer count
+   toward ambiguous default resolution after their config entry is removed.
 2. **Decouple consumer-entity ownership from any transmitter config entry.** This
    single refactor closes BOTH documented lifecycle edges at once (owner-disable
    leaves consumer entities down; owner-removal purges entity customizations).

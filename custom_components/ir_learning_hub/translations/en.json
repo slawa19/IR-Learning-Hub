@@ -187,6 +187,10 @@
           "name": "Verified",
           "description": "Mark the command as tested and verified."
         },
+        "feature": {
+          "name": "Feature",
+          "description": "Optional semantic role used by media_player and switch entities. Leave empty for raw remote-only commands."
+        },
         "source": {
           "name": "Source",
           "description": "Optional provenance object for non-learned commands, e.g. the output of generate_code. Stored as-is and never sent."
@@ -300,6 +304,10 @@
         "name": {
           "name": "Name",
           "description": "Human-readable command name."
+        },
+        "feature": {
+          "name": "Feature",
+          "description": "Optional semantic role used by media_player and switch entities."
         }
       }
     },
@@ -311,7 +319,8 @@
         "ir_device_id": { "name": "IR device ID", "description": "Identifier of the IR device the command belongs to." },
         "command_id": { "name": "Command ID", "description": "Identifier of the command to update." },
         "name": { "name": "Name", "description": "New command name." },
-        "icon": { "name": "Icon", "description": "Material Design icon, e.g. mdi:play. Leave empty to clear." }
+        "icon": { "name": "Icon", "description": "Material Design icon, e.g. mdi:play. Leave empty to clear." },
+        "feature": { "name": "Feature", "description": "Optional semantic role. Leave empty to clear." }
       }
     },
     "rename_location": {

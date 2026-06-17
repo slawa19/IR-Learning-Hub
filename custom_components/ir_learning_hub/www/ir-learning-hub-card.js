@@ -16,7 +16,7 @@ class IRLearningHubCard extends HTMLElement {
     this._countdown = 0;
     this._countdownTimer = null;
     this._addForm = null;     // { type:"location"|"device", id, name }
-    this._newCmd = null;      // { id, name }
+    this._newCmd = null;      // { id, name, feature }
     this._menu = null;        // { kind:"loc"|"dev"|"cmd", locId, devId, cmdId }
     this._rename = null;      // { kind, locId, devId, cmdId, name }
     this._iconEdit = null;    // { locId, devId, cmdId, icon }
@@ -93,6 +93,38 @@ class IRLearningHubCard extends HTMLElement {
 
   _isValidId(v) {
     return /^[a-z0-9_]+$/.test(String(v || ""));
+  }
+
+  _featureOptions() {
+    return [
+      ["", this._t("featureNone")],
+      ["power_on", this._t("featurePowerOn")],
+      ["power_off", this._t("featurePowerOff")],
+      ["power_toggle", this._t("featurePowerToggle")],
+      ["play", this._t("featurePlay")],
+      ["pause", this._t("featurePause")],
+      ["play_pause_toggle", this._t("featurePlayPauseToggle")],
+      ["stop", this._t("featureStop")],
+      ["next", this._t("featureNext")],
+      ["previous", this._t("featurePrevious")],
+      ["fast_forward", this._t("featureFastForward")],
+      ["rewind", this._t("featureRewind")],
+      ["volume_up", this._t("featureVolumeUp")],
+      ["volume_down", this._t("featureVolumeDown")],
+      ["mute", this._t("featureMute")],
+      ["unmute", this._t("featureUnmute")],
+      ["mute_toggle", this._t("featureMuteToggle")],
+      ["source", this._t("featureSource")],
+    ];
+  }
+
+  _featureSelect(value, attr) {
+    return `
+      <select class="fi" ${attr}>
+        ${this._featureOptions().map(([v, label]) => `
+          <option value="${this._x(v)}"${v === (value || "") ? " selected" : ""}>${this._x(label)}</option>
+        `).join("")}
+      </select>`;
   }
 
   _t(key, vars = {}) {
@@ -183,7 +215,7 @@ class IRLearningHubCard extends HTMLElement {
 
   // ── Wizard ────────────────────────────────────────────────────────────────
 
-  _startWizard(cmdId, cmdName) {
+  _startWizard(cmdId, cmdName, cmdFeature = "") {
     const seq = ++this._wizardSeq;
     this._wizard = {
       step: 1,
@@ -192,6 +224,7 @@ class IRLearningHubCard extends HTMLElement {
       irDeviceId: this._selDev,
       cmdId,
       cmdName,
+      cmdFeature,
       tested: false,
     };
     this._currentCode = ""; this._err = ""; this._msg = "";
@@ -253,6 +286,7 @@ class IRLearningHubCard extends HTMLElement {
         name: w.cmdName,
         code: this._currentCode,
         verified: w.tested,
+        feature: w.cmdFeature || "",
       });
       await this._loadRegistry();
       this._wizard = null;
@@ -534,6 +568,7 @@ class IRLearningHubCard extends HTMLElement {
                 <ha-icon icon="mdi:help-circle-outline"></ha-icon>
               </span>
             </div>
+            ${this._featureSelect(this._newCmd.feature || "", "data-nc=\"feature\"")}
           </div>
           <div class="form-row">
             <button class="btn p icon-only" data-act="startLearnNew" ${this._busy ? "disabled" : ""} title="${this._x(this._t("learn"))}" aria-label="${this._x(this._t("learn"))}">
@@ -576,6 +611,8 @@ class IRLearningHubCard extends HTMLElement {
       <div class="panel">
         <div class="panel-title">${this._x(this._t("chooseIcon"))} · ${this._x(cmd.name || e.cmdId)}</div>
         <div class="chips">${chips}</div>
+        <div class="panel-title">${this._x(this._t("featureLabel"))}</div>
+        ${this._featureSelect(e.feature || "", "data-feature-input")}
         <div class="field-row">
           <span class="icon-preview" data-icon-preview><ha-icon icon="${this._x(e.icon || "mdi:remote")}"></ha-icon></span>
           <input class="fi" data-icon-input value="${this._x(e.icon)}" placeholder="mdi:play" />
@@ -656,11 +693,19 @@ class IRLearningHubCard extends HTMLElement {
     } else if (act === "delete") {
       this._doDelete(m);
     } else if (act === "relearn") {
-      const cmdName = this._cmds()[m.cmdId]?.name || m.cmdId;
+      const cmd = this._cmds()[m.cmdId] || {};
+      const cmdName = cmd.name || m.cmdId;
       this._render();
-      this._startWizard(m.cmdId, cmdName);
+      this._startWizard(m.cmdId, cmdName, cmd.feature || "");
     } else if (act === "icon") {
-      this._iconEdit = { locId: m.locId, devId: m.devId, cmdId: m.cmdId, icon: this._cmds()[m.cmdId]?.icon || "" };
+      const cmd = this._cmds()[m.cmdId] || {};
+      this._iconEdit = {
+        locId: m.locId,
+        devId: m.devId,
+        cmdId: m.cmdId,
+        icon: cmd.icon || "",
+        feature: cmd.feature || "",
+      };
       this._render();
     } else if (act === "export") {
       this._selLoc = m.locId; this._selDev = m.devId; this._expanded[m.locId] = true;
@@ -713,6 +758,7 @@ class IRLearningHubCard extends HTMLElement {
       await this._call("update_command", {
         location_id: e.locId, ir_device_id: e.devId, command_id: e.cmdId,
         icon: (e.icon || "").trim(),
+        feature: e.feature || "",
       });
       this._iconEdit = null;
       await this._loadRegistry();
@@ -799,6 +845,8 @@ class IRLearningHubCard extends HTMLElement {
         };
         if (cmd.source && typeof cmd.source === "object" && !Array.isArray(cmd.source))
           payload.source = cmd.source;
+        if (typeof cmd.feature === "string")
+          payload.feature = cmd.feature;
         await this._call("save_command", payload);
         // Only carry icons the backend will accept, so one malformed icon in a
         // hand-edited profile does not abort the rest of the import.
@@ -867,6 +915,7 @@ class IRLearningHubCard extends HTMLElement {
           <div class="w-title">${this._x(w.tested ? this._t("tested") : this._t("notTested"))}</div>
           <div class="wizard-field">
             <input class="w-name-input" data-wname value="${this._x(w.cmdName)}" placeholder="${this._x(this._t("commandName"))}" />
+            ${this._featureSelect(w.cmdFeature || "", "data-wfeature")}
           </div>
           <div class="w-actions">
             <button class="btn p" data-act="saveCode" ${this._busy ? "disabled" : ""}>
@@ -985,6 +1034,11 @@ class IRLearningHubCard extends HTMLElement {
       if (this._wizard) this._wizard = { ...this._wizard, cmdName: wname.value };
     });
 
+    const wfeature = root.querySelector("[data-wfeature]");
+    if (wfeature) wfeature.addEventListener("input", () => {
+      if (this._wizard) this._wizard = { ...this._wizard, cmdFeature: wfeature.value };
+    });
+
     root.querySelectorAll("[data-menu]").forEach(el =>
       el.addEventListener("click", (e) => { e.stopPropagation(); this._openMenu(el.dataset, el); })
     );
@@ -1011,6 +1065,11 @@ class IRLearningHubCard extends HTMLElement {
       if (prev) prev.setAttribute("icon", iin.value || "mdi:remote");
     });
 
+    const fin = root.querySelector("[data-feature-input]");
+    if (fin) fin.addEventListener("input", () => {
+      if (this._iconEdit) this._iconEdit.feature = fin.value;
+    });
+
     root.querySelectorAll('[data-act="pickIcon"]').forEach(el =>
       el.addEventListener("click", () => {
         if (!this._iconEdit) return;
@@ -1035,12 +1094,12 @@ class IRLearningHubCard extends HTMLElement {
       showAddLoc: () => { this._addForm = { type: "location", id: "", name: "", idTouched: false }; this._render(); },
       submitAdd: () => this._submitAdd(),
       cancelAdd: () => { this._addForm = null; this._render(); },
-      showNewCmd: () => { this._newCmd = { id: "", name: "", idTouched: false }; this._render(); },
+      showNewCmd: () => { this._newCmd = { id: "", name: "", feature: "", idTouched: false }; this._render(); },
       cancelNewCmd: () => { this._newCmd = null; this._render(); },
       startLearnNew: () => {
         const f = this._newCmd;
         if (!f?.id.trim()) { this._err = this._t("commandIdRequired"); this._render(); return; }
-        this._startWizard(f.id.trim(), f.name.trim() || f.id.trim());
+        this._startWizard(f.id.trim(), f.name.trim() || f.id.trim(), f.feature || "");
       },
       testCode: () => this._testCode(),
       skipSave: () => { this._wizard = { ...this._wizard, step: 3 }; this._render(); },
@@ -1080,6 +1139,25 @@ const TRANSLATIONS = {
     download: "Download",
     exportHint: "Copy or download this device's commands as JSON.",
     exportProfile: "Export profile",
+    featureLabel: "Role",
+    featureNone: "No role",
+    featurePowerOn: "Power on",
+    featurePowerOff: "Power off",
+    featurePowerToggle: "Power toggle",
+    featurePlay: "Play",
+    featurePause: "Pause",
+    featurePlayPauseToggle: "Play/pause toggle",
+    featureStop: "Stop",
+    featureNext: "Next",
+    featurePrevious: "Previous",
+    featureFastForward: "Fast forward",
+    featureRewind: "Rewind",
+    featureVolumeUp: "Volume up",
+    featureVolumeDown: "Volume down",
+    featureMute: "Mute",
+    featureUnmute: "Unmute",
+    featureMuteToggle: "Mute toggle",
+    featureSource: "Source",
     iconLabel: "Icon",
     import: "Import",
     importHint: "Paste a profile JSON to add its commands to this device.",
@@ -1144,6 +1222,25 @@ const TRANSLATIONS = {
     download: "Скачать",
     exportHint: "Скопируйте или скачайте команды этого устройства в JSON.",
     exportProfile: "Экспорт профиля",
+    featureLabel: "Роль",
+    featureNone: "Без роли",
+    featurePowerOn: "Включение",
+    featurePowerOff: "Выключение",
+    featurePowerToggle: "Переключение питания",
+    featurePlay: "Play",
+    featurePause: "Pause",
+    featurePlayPauseToggle: "Play/Pause",
+    featureStop: "Stop",
+    featureNext: "Следующий",
+    featurePrevious: "Предыдущий",
+    featureFastForward: "Перемотка вперёд",
+    featureRewind: "Перемотка назад",
+    featureVolumeUp: "Громче",
+    featureVolumeDown: "Тише",
+    featureMute: "Mute",
+    featureUnmute: "Unmute",
+    featureMuteToggle: "Mute toggle",
+    featureSource: "Источник",
     iconLabel: "Иконка",
     import: "Импорт",
     importHint: "Вставьте JSON профиля, чтобы добавить его команды в это устройство.",
@@ -1208,6 +1305,25 @@ const TRANSLATIONS = {
     download: "Завантажити",
     exportHint: "Скопіюйте або завантажте команди цього пристрою у JSON.",
     exportProfile: "Експорт профілю",
+    featureLabel: "Роль",
+    featureNone: "Без ролі",
+    featurePowerOn: "Увімкнення",
+    featurePowerOff: "Вимкнення",
+    featurePowerToggle: "Перемикання живлення",
+    featurePlay: "Play",
+    featurePause: "Pause",
+    featurePlayPauseToggle: "Play/Pause",
+    featureStop: "Stop",
+    featureNext: "Наступний",
+    featurePrevious: "Попередній",
+    featureFastForward: "Перемотування вперед",
+    featureRewind: "Перемотування назад",
+    featureVolumeUp: "Гучніше",
+    featureVolumeDown: "Тихіше",
+    featureMute: "Mute",
+    featureUnmute: "Unmute",
+    featureMuteToggle: "Mute toggle",
+    featureSource: "Джерело",
     iconLabel: "Іконка",
     import: "Імпорт",
     importHint: "Вставте JSON профілю, щоб додати його команди до цього пристрою.",

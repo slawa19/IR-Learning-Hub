@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Any
 
 try:
-    from .capabilities import DeviceCapabilities, infer_capabilities, normalize_command_id
+    from .capabilities import COMMAND_FEATURE_SET, DeviceCapabilities, infer_capabilities
 except ImportError:  # pragma: no cover - supports standalone unittest imports.
-    from capabilities import DeviceCapabilities, infer_capabilities, normalize_command_id
+    from capabilities import COMMAND_FEATURE_SET, DeviceCapabilities, infer_capabilities
 
 DOMAIN_MEDIA_PLAYER = "media_player"
 DOMAIN_REMOTE = "remote"
@@ -27,7 +27,7 @@ class EntitySpec:
     name: str
     transmitter_id: str | None
     command_ids: tuple[str, ...]
-    command_keys: dict[str, str]
+    feature_keys: dict[str, str]
     capabilities: DeviceCapabilities
 
     @property
@@ -43,8 +43,8 @@ def desired_entities(store_data: dict[str, Any]) -> list[EntitySpec]:
         devices = location.get("devices", {})
         for ir_device_id, device in sorted(devices.items()):
             commands = device.get("commands", {})
-            command_keys = _command_keys(commands)
-            capabilities = infer_capabilities(tuple(command_keys))
+            feature_keys = _feature_keys(commands)
+            capabilities = infer_capabilities(_capability_commands(commands))
             domain = _select_domain(
                 str(device.get("preferred_domain") or PREFERRED_DOMAIN_AUTO),
                 str(device.get("type") or "generic"),
@@ -62,8 +62,8 @@ def desired_entities(store_data: dict[str, Any]) -> list[EntitySpec]:
                     ir_device_id=ir_device_id,
                     name=str(device.get("name") or ir_device_id),
                     transmitter_id=device.get("transmitter_id") or None,
-                    command_ids=tuple(sorted(command_keys)),
-                    command_keys=command_keys,
+                    command_ids=tuple(sorted(commands)),
+                    feature_keys=feature_keys,
                     capabilities=capabilities,
                 )
             )
@@ -91,12 +91,24 @@ def diff_entity_ids(
     return desired_unique_ids - current_unique_ids, current_unique_ids - desired_unique_ids
 
 
-def _command_keys(commands: dict[str, Any]) -> dict[str, str]:
+def _feature_keys(commands: dict[str, Any]) -> dict[str, str]:
     keys: dict[str, str] = {}
-    for stored_id in commands:
-        canonical_id = normalize_command_id(stored_id)
-        keys.setdefault(canonical_id, stored_id)
+    for stored_id, command in commands.items():
+        feature = command.get("feature")
+        if feature in COMMAND_FEATURE_SET:
+            keys.setdefault(feature, stored_id)
     return keys
+
+
+def _capability_commands(commands: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "command_id": stored_id,
+            "feature": command.get("feature"),
+            "name": command.get("name") or stored_id,
+        }
+        for stored_id, command in commands.items()
+    ]
 
 
 def _select_domain(

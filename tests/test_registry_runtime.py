@@ -25,19 +25,26 @@ class RegistryRuntimeTests(unittest.TestCase):
                             "type": "media_player",
                             "preferred_domain": "auto",
                             "transmitter_id": "tx1",
-                            "commands": {"play": {}, "vol_up": {}, "vol_down": {}},
+                            "commands": {
+                                "play_button": {"feature": "play"},
+                                "louder": {"feature": "volume_up"},
+                                "quieter": {"feature": "volume_down"},
+                            },
                         },
                         "tv": {
                             "name": "TV",
                             "type": "generic",
                             "preferred_domain": "remote",
-                            "commands": {"power": {}},
+                            "commands": {"pwr": {"feature": "power_toggle"}},
                         },
                         "lamp": {
                             "name": "Lamp",
                             "type": "switch",
                             "preferred_domain": "auto",
-                            "commands": {"power_on": {}, "power_off": {}},
+                            "commands": {
+                                "on": {"feature": "power_on"},
+                                "off": {"feature": "power_off"},
+                            },
                         },
                     },
                 }
@@ -47,10 +54,10 @@ class RegistryRuntimeTests(unittest.TestCase):
         specs = {spec.unique_id: spec for spec in desired_entities(store_data)}
 
         self.assertEqual(specs["living__amp"].domain, "media_player")
-        self.assertEqual(specs["living__amp"].command_keys["volume_up"], "vol_up")
+        self.assertEqual(specs["living__amp"].feature_keys["volume_up"], "louder")
         self.assertEqual(specs["living__amp"].transmitter_id, "tx1")
         self.assertEqual(specs["living__tv"].domain, "remote")
-        self.assertEqual(specs["living__tv"].command_keys["power_toggle"], "power")
+        self.assertEqual(specs["living__tv"].feature_keys["power_toggle"], "pwr")
         self.assertEqual(specs["living__lamp__switch"].domain, "switch")
 
     def test_preferred_switch_falls_back_to_remote_when_not_pure_switch(self) -> None:
@@ -62,7 +69,10 @@ class RegistryRuntimeTests(unittest.TestCase):
                             "name": "Mixed",
                             "type": "generic",
                             "preferred_domain": "switch",
-                            "commands": {"power_toggle": {}, "play": {}},
+                            "commands": {
+                                "pwr": {"feature": "power_toggle"},
+                                "play_button": {"feature": "play"},
+                            },
                         }
                     }
                 }

@@ -15,8 +15,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .capabilities import normalize_command_id
 from .const import DOMAIN, SIGNAL_REGISTRY_UPDATED
+from .errors import IRLearningHubError
 from .ir_command import ZosungCommand
 from .registry_runtime import EntitySpec, desired_entities_for_domain
 from .storage import IRRegistryStore
@@ -167,12 +167,22 @@ class RegistryBackedConsumerEntity:
         return self._spec.device_identifier
 
     async def async_send_stored_command(self, command_id: str) -> None:
-        """Send one stored IR command through the resolved emitter entity."""
+        """Send one raw stored IR command through the resolved emitter entity."""
         await async_send_registry_command(
             self.hass,
             self._store,
             self._spec,
             command_id,
+            context=self._context,
+        )
+
+    async def async_send_feature_command(self, feature: str) -> None:
+        """Send the stored command assigned to a feature role."""
+        await async_send_feature_command(
+            self.hass,
+            self._store,
+            self._spec,
+            feature,
             context=self._context,
         )
 
@@ -185,10 +195,8 @@ async def async_send_registry_command(
     *,
     context: Any | None = None,
 ) -> None:
-    """Resolve and send a registry command through the selected IR emitter."""
-    canonical_command_id = normalize_command_id(command_id)
-    stored_command_id = spec.command_keys.get(canonical_command_id)
-    if stored_command_id is None:
+    """Resolve and send a raw registry command through the selected IR emitter."""
+    if command_id not in spec.command_ids:
         raise ServiceValidationError(
             f"IR device {spec.device_identifier} has no command_id {command_id}"
         )
@@ -196,9 +204,12 @@ async def async_send_registry_command(
     command = store.get_command(
         spec.location_id,
         spec.ir_device_id,
-        stored_command_id,
+        command_id,
     )
-    transmitter = resolve_spec_transmitter(store, spec)
+    try:
+        transmitter = resolve_spec_transmitter(store, spec)
+    except IRLearningHubError as err:
+        raise ServiceValidationError(str(err)) from err
     transmitter_id = transmitter_id_for_store_item(store, transmitter)
     emitter_entity = resolve_emitter_entity_id(hass, transmitter_id)
     await infrared.async_send_command(
@@ -208,6 +219,29 @@ async def async_send_registry_command(
             command["code"],
             command_format=command.get("format", "zosung_base64"),
         ),
+        context=context,
+    )
+
+
+async def async_send_feature_command(
+    hass: HomeAssistant,
+    store: IRRegistryStore,
+    spec: EntitySpec,
+    feature: str,
+    *,
+    context: Any | None = None,
+) -> None:
+    """Resolve a feature role and send its stored command."""
+    stored_command_id = spec.feature_keys.get(feature)
+    if stored_command_id is None:
+        raise ServiceValidationError(
+            f"IR device {spec.device_identifier} has no feature {feature}"
+        )
+    await async_send_registry_command(
+        hass,
+        store,
+        spec,
+        stored_command_id,
         context=context,
     )
 

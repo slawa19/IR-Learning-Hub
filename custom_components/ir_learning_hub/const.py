@@ -66,6 +66,26 @@ FIELD_TYPE = "type"
 PREFERRED_DOMAIN_AUTO = "auto"
 PREFERRED_DOMAINS = ("auto", "media_player", "remote", "switch")
 
+COMMAND_FEATURES = (
+    "power_on",
+    "power_off",
+    "power_toggle",
+    "play",
+    "pause",
+    "play_pause_toggle",
+    "stop",
+    "next",
+    "previous",
+    "fast_forward",
+    "rewind",
+    "volume_up",
+    "volume_down",
+    "mute",
+    "unmute",
+    "mute_toggle",
+    "source",
+)
+
 STATUS_CODE_RECEIVED = "code_received"
 STATUS_ERROR = "error"
 STATUS_IDLE = "idle"

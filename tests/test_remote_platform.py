@@ -100,6 +100,15 @@ class FakeSetupStore:
         return "0011"
 
 
+class FakeRemovalStore:
+    def __init__(self) -> None:
+        self.data = {"transmitters": {"0011": {"ieee": "00:11"}}}
+        self.saved = False
+
+    async def async_save(self) -> None:
+        self.saved = True
+
+
 def test_emitter_forwards_zosung_command_to_adapter() -> None:
     store = FakeStore()
     adapter = type("Adapter", (), {"async_send": AsyncMock()})()
@@ -184,7 +193,7 @@ def test_consumer_send_uses_infrared_entity_registry_and_helper(monkeypatch) -> 
                             "type": "generic",
                             "preferred_domain": "remote",
                             "transmitter_id": "stale",
-                            "commands": {"power": {}},
+                                "commands": {"power": {"feature": "power_toggle"}},
                         }
                     }
                 }
@@ -192,7 +201,7 @@ def test_consumer_send_uses_infrared_entity_registry_and_helper(monkeypatch) -> 
         }
     )
 
-    asyncio.run(async_send_registry_command(object(), store, spec, "power_toggle"))
+    asyncio.run(async_send_registry_command(object(), store, spec, "power"))
 
     send_mock.assert_awaited_once()
     _, emitter_entity_id, command = send_mock.await_args.args[:3]
@@ -210,7 +219,7 @@ def test_consumer_send_raises_for_missing_command() -> None:
         name="TV",
         transmitter_id=None,
         command_ids=(),
-        command_keys={},
+        feature_keys={},
         capabilities=desired_entities(
             {
                 "locations": {
@@ -242,7 +251,7 @@ def test_remote_power_command_raises_service_validation_error() -> None:
                             "name": "TV",
                             "type": "generic",
                             "preferred_domain": "remote",
-                            "commands": {"play": {}},
+                            "commands": {"play": {"feature": "play"}},
                         }
                     }
                 }
@@ -336,6 +345,31 @@ def test_remove_owner_re_elects_once_and_schedules_reload() -> None:
     assert DOMAIN in hass.data
 
 
+def test_remove_entry_deletes_transmitter_from_store() -> None:
+    store = FakeRemovalStore()
+    domain_data = {
+        "consumer_owner": "owner",
+        "entries": {"owner": FakeEntry("owner"), "secondary": FakeEntry("secondary")},
+        "forwarded": {
+            "owner": ENTRY_PLATFORMS + CONSUMER_PLATFORMS,
+            "secondary": ENTRY_PLATFORMS,
+        },
+        "learn_tasks": {},
+        "store": store,
+    }
+    hass = FakeHass(domain_data)
+    entry = type(
+        "Entry",
+        (),
+        {"entry_id": "owner", "data": {CONF_IEEE: "00:11"}},
+    )()
+
+    asyncio.run(async_remove_entry(hass, entry))
+
+    assert store.data["transmitters"] == {}
+    assert store.saved is True
+
+
 def test_remove_non_owner_does_not_reload_or_change_owner() -> None:
     domain_data = {
         "consumer_owner": "owner",
@@ -425,7 +459,7 @@ def test_remote_manager_reconcile_is_idempotent_and_removes_missing_entities(mon
                     "name": "TV",
                     "type": "generic",
                     "preferred_domain": "remote",
-                    "commands": {"power_toggle": {}},
+                    "commands": {"power_toggle": {"feature": "power_toggle"}},
                 }
             }
         }

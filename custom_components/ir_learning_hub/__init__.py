@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 
 from .const import (
+    COMMAND_FEATURES,
     CONF_IEEE,
     DOMAIN,
     ERROR_CODE_EMPTY,
@@ -73,6 +74,7 @@ FIELD_COMMAND_ID = "command_id"
 FIELD_CONFIRM = "confirm"
 FIELD_DEVICE = "device"
 FIELD_EXTENDED = "extended"
+FIELD_FEATURE = "feature"
 FIELD_ICON = "icon"
 FIELD_IR_DEVICE_ID = "ir_device_id"
 FIELD_LOCATION_ID = "location_id"
@@ -144,8 +146,8 @@ def _icon_schema(value: str) -> str:
 
 def _command_update_schema(value: dict[str, Any]) -> dict[str, Any]:
     """Require update_command to change at least one user-facing field."""
-    if FIELD_NAME not in value and FIELD_ICON not in value:
-        raise vol.Invalid("Either name or icon is required")
+    if FIELD_NAME not in value and FIELD_ICON not in value and FIELD_FEATURE not in value:
+        raise vol.Invalid("Either name, icon, or feature is required")
     return value
 
 
@@ -180,6 +182,7 @@ COMMAND_SCHEMA = {
     vol.Required(FIELD_IR_DEVICE_ID): _id_schema,
     vol.Required(FIELD_COMMAND_ID): _id_schema,
     vol.Required(FIELD_NAME): _non_empty_string,
+    vol.Optional(FIELD_FEATURE): vol.In(("",) + COMMAND_FEATURES),
 }
 
 
@@ -244,6 +247,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     if not domain_data:
         return
 
+    await _async_remove_transmitter_for_entry(domain_data, entry)
     new_owner_id = _remove_entry_and_select_new_owner(domain_data, entry.entry_id)
     if domain_data.get("entries"):
         if new_owner_id is not None:
@@ -321,6 +325,25 @@ def _register_transmitter_device(
         manufacturer="Tuya",
         model="TS1201 / MOES UFO-R11",
     )
+
+
+async def _async_remove_transmitter_for_entry(
+    domain_data: dict[str, Any],
+    entry: ConfigEntry,
+) -> None:
+    """Remove the registry transmitter row owned by a deleted config entry."""
+    store: IRRegistryStore | None = domain_data.get("store")
+    if store is None:
+        return
+    transmitter_id = entry.data.get(CONF_IEEE)
+    if not transmitter_id:
+        return
+    removed = store.data.get("transmitters", {}).pop(
+        transmitter_id.replace(":", "").lower(),
+        None,
+    )
+    if removed is not None:
+        await store.async_save()
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -595,6 +618,7 @@ def _register_services(hass: HomeAssistant) -> None:
                 call.data[FIELD_CODE],
                 call.data[FIELD_VERIFIED],
                 source=call.data.get(FIELD_SOURCE),
+                feature=call.data.get(FIELD_FEATURE),
             )
             return {"status": "saved"}
 
@@ -670,6 +694,7 @@ def _register_services(hass: HomeAssistant) -> None:
                 call.data[FIELD_IR_DEVICE_ID],
                 call.data[FIELD_COMMAND_ID],
                 call.data[FIELD_NAME],
+                call.data.get(FIELD_FEATURE),
             )
             return {"status": "saved"}
 
@@ -683,6 +708,11 @@ def _register_services(hass: HomeAssistant) -> None:
                 call.data[FIELD_COMMAND_ID],
                 name=call.data.get(FIELD_NAME),
                 icon=call.data.get(FIELD_ICON),
+                feature=(
+                    call.data[FIELD_FEATURE]
+                    if FIELD_FEATURE in call.data
+                    else None
+                ),
             )
             return {"status": "saved"}
 
@@ -829,6 +859,7 @@ def _register_services(hass: HomeAssistant) -> None:
                 vol.Required(FIELD_CODE): _non_empty_string,
                 vol.Optional(FIELD_VERIFIED, default=False): cv.boolean,
                 vol.Optional(FIELD_SOURCE): dict,
+                vol.Optional(FIELD_FEATURE): vol.In(("",) + COMMAND_FEATURES),
             }
         ),
         supports_response=SupportsResponse.OPTIONAL,
@@ -888,6 +919,7 @@ def _register_services(hass: HomeAssistant) -> None:
                     vol.Required(FIELD_COMMAND_ID): _id_schema,
                     vol.Optional(FIELD_NAME): _non_empty_string,
                     vol.Optional(FIELD_ICON): _icon_schema,
+                    vol.Optional(FIELD_FEATURE): vol.In(("",) + COMMAND_FEATURES),
                 }
             ),
             _command_update_schema,

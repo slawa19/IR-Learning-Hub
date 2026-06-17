@@ -79,8 +79,8 @@ class IRLearningHubRemoteEntity(RegistryBackedConsumerEntity, RemoteEntity, Rest
 
     async def async_toggle(self, **kwargs: Any) -> None:
         """Toggle the remote device."""
-        if "power_toggle" in self._spec.command_keys:
-            await self.async_send_stored_command("power_toggle")
+        if "power_toggle" in self._spec.feature_keys:
+            await self.async_send_feature_command("power_toggle")
             self._is_on = not self._is_on
         elif self._is_on:
             await self._send_power_command("power_off")
@@ -96,9 +96,9 @@ class IRLearningHubRemoteEntity(RegistryBackedConsumerEntity, RemoteEntity, Rest
             await self.async_send_stored_command(command_id)
 
     async def _send_power_command(self, *command_ids: str) -> None:
-        for command_id in command_ids:
-            if command_id in self._spec.command_keys:
-                await self.async_send_stored_command(command_id)
+        for feature in command_ids:
+            if feature in self._spec.feature_keys:
+                await self.async_send_feature_command(feature)
                 return
         raise ServiceValidationError(
             f"IR device {self._spec.device_identifier} has no supported power command"

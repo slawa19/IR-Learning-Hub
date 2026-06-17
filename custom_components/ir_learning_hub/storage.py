@@ -12,6 +12,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    COMMAND_FEATURES,
     ERROR_COMMAND_NOT_FOUND,
     ERROR_STORAGE_ERROR,
     ERROR_TRANSMITTER_NOT_CONFIGURED,
@@ -23,10 +24,10 @@ from .const import (
 )
 from .device_profiles import get_profile
 from .errors import IRLearningHubError
-from .storage_migration import migrate_v1_to_v2
+from .storage_migration import migrate_to_v3
 
 STORAGE_KEY = "ir_learning_hub"
-STORAGE_VERSION = 2
+STORAGE_VERSION = 3
 ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
@@ -55,6 +56,14 @@ def _validate_preferred_domain(value: str) -> None:
         )
 
 
+def _validate_command_feature(value: str) -> None:
+    if value not in COMMAND_FEATURES:
+        raise IRLearningHubError(
+            ERROR_STORAGE_ERROR,
+            f"feature must be one of: {', '.join(COMMAND_FEATURES)}",
+        )
+
+
 class IRRegistryDataStore(Store):
     """Store with additive registry migrations."""
 
@@ -65,9 +74,7 @@ class IRRegistryDataStore(Store):
         old_data: dict[str, Any],
     ) -> dict[str, Any]:
         """Migrate old registry data to the current schema."""
-        if old_major_version < 2:
-            return migrate_v1_to_v2(old_data)
-        return old_data
+        return migrate_to_v3(old_data)
 
 
 class IRRegistryStore:
@@ -87,7 +94,7 @@ class IRRegistryStore:
             return
 
         if stored.get("version", 1) < STORAGE_VERSION:
-            stored = migrate_v1_to_v2(stored)
+            stored = migrate_to_v3(stored)
 
         self.data = _default_data() | stored
         self.data.setdefault("transmitters", {})
@@ -260,7 +267,12 @@ class IRRegistryStore:
         await self.async_save()
 
     async def add_command(
-        self, location_id: str, ir_device_id: str, command_id: str, name: str
+        self,
+        location_id: str,
+        ir_device_id: str,
+        command_id: str,
+        name: str,
+        feature: str | None = None,
     ) -> None:
         """Add an empty command placeholder."""
         _validate_id(command_id, "command_id")
@@ -270,6 +282,12 @@ class IRRegistryStore:
         command.setdefault("format", "zosung_base64")
         command.setdefault("verified", False)
         command["name"] = name
+        if feature is not None:
+            if feature:
+                _validate_command_feature(feature)
+                command["feature"] = feature
+            else:
+                command.pop("feature", None)
         command["updated_at"] = dt_util.utcnow().isoformat()
         await self.async_save()
 
@@ -298,6 +316,7 @@ class IRRegistryStore:
         verified: bool,
         code_format: str = "zosung_base64",
         source: dict[str, Any] | None = None,
+        feature: str | None = None,
     ) -> None:
         """Upsert a learned or generated command.
 
@@ -334,6 +353,12 @@ class IRRegistryStore:
         }
         if existing.get("icon"):
             command["icon"] = existing["icon"]
+        if feature is None:
+            if existing.get("feature"):
+                command["feature"] = existing["feature"]
+        elif feature:
+            _validate_command_feature(feature)
+            command["feature"] = feature
         if source is not None:
             command["source"] = source
         device["commands"][command_id] = command
@@ -346,6 +371,7 @@ class IRRegistryStore:
         command_id: str,
         name: str | None = None,
         icon: str | None = None,
+        feature: str | None = None,
     ) -> None:
         """Update a command's name and/or icon without re-learning its code."""
         command = self._command(location_id, ir_device_id, command_id)
@@ -356,6 +382,12 @@ class IRRegistryStore:
                 command["icon"] = icon
             else:
                 command.pop("icon", None)
+        if feature is not None:
+            if feature:
+                _validate_command_feature(feature)
+                command["feature"] = feature
+            else:
+                command.pop("feature", None)
         command["updated_at"] = dt_util.utcnow().isoformat()
         await self.async_save()
 

@@ -10,7 +10,7 @@ _PKG_DIR = Path(__file__).resolve().parents[1] / "custom_components" / "ir_learn
 if str(_PKG_DIR) not in sys.path:
     sys.path.insert(0, str(_PKG_DIR))
 
-from storage_migration import migrate_v1_to_v2  # noqa: E402
+from storage_migration import migrate_to_v3, migrate_v1_to_v2, migrate_v2_to_v3  # noqa: E402
 
 
 class StorageMigrationTests(unittest.TestCase):
@@ -45,14 +45,14 @@ class StorageMigrationTests(unittest.TestCase):
             },
         }
 
-        migrated = migrate_v1_to_v2(v1_data)
+        migrated = migrate_to_v3(v1_data)
 
-        self.assertEqual(migrated["version"], 2)
+        self.assertEqual(migrated["version"], 3)
         self.assertEqual(migrated["transmitters"], v1_data["transmitters"])
         device = migrated["locations"]["living_room"]["devices"]["receiver"]
         self.assertEqual(device["name"], "Receiver")
         self.assertEqual(device["type"], "media_player")
-        self.assertEqual(device["commands"], v1_data["locations"]["living_room"]["devices"]["receiver"]["commands"])
+        self.assertEqual(device["commands"]["volume_up"]["feature"], "volume_up")
         self.assertEqual(device["preferred_domain"], "auto")
         self.assertIsNone(device["transmitter_id"])
 
@@ -105,6 +105,40 @@ class StorageMigrationTests(unittest.TestCase):
         device = migrated["locations"]["room"]["devices"]["amp"]
         self.assertEqual(device["preferred_domain"], "media_player")
         self.assertEqual(device["transmitter_id"], "tx1")
+
+    def test_v2_to_v3_seeds_known_features_only(self) -> None:
+        migrated = migrate_v2_to_v3(
+            {
+                "version": 2,
+                "transmitters": {},
+                "locations": {
+                    "room": {
+                        "devices": {
+                            "amp": {
+                                "name": "Amp",
+                                "type": "media_player",
+                                "preferred_domain": "media_player",
+                                "transmitter_id": None,
+                                "commands": {
+                                    "power": {"name": "Power"},
+                                    "vol_up": {"name": "Volume up"},
+                                    "source_cd": {"name": "CD"},
+                                    "tuner": {"name": "Tuner"},
+                                    "video_1": {"name": "Video 1"},
+                                },
+                            }
+                        }
+                    }
+                },
+            }
+        )
+
+        commands = migrated["locations"]["room"]["devices"]["amp"]["commands"]
+        self.assertEqual(commands["power"]["feature"], "power_toggle")
+        self.assertEqual(commands["vol_up"]["feature"], "volume_up")
+        self.assertEqual(commands["source_cd"]["feature"], "source")
+        self.assertNotIn("feature", commands["tuner"])
+        self.assertNotIn("feature", commands["video_1"])
 
 
 if __name__ == "__main__":

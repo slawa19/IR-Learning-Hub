@@ -55,6 +55,15 @@ class FakeHass:
 
 
 def spec_from_commands(commands, *, preferred_domain="media_player", device_type="media_player"):
+    command_map = {
+        command_id: {
+            "feature": "source" if command_id.startswith("source_") else command_id,
+            "name": command_id.removeprefix("source_").replace("_", " ").upper()
+            if command_id.startswith("source_")
+            else command_id,
+        }
+        for command_id in commands
+    }
     [spec] = desired_entities(
         {
             "locations": {
@@ -64,7 +73,7 @@ def spec_from_commands(commands, *, preferred_domain="media_player", device_type
                             "name": "Amp",
                             "type": device_type,
                             "preferred_domain": preferred_domain,
-                            "commands": {command_id: {} for command_id in commands},
+                            "commands": command_map,
                         }
                     }
                 }
@@ -113,13 +122,31 @@ def test_media_player_no_power_mode_does_not_advertise_turn_on_off() -> None:
 
 
 def test_source_reverse_mapping_uses_display_name() -> None:
-    spec = spec_from_commands({"source_cd", "source_hdmi_1"})
+    [spec] = desired_entities(
+        {
+            "locations": {
+                "living": {
+                    "devices": {
+                        "amp": {
+                            "name": "Amp",
+                            "type": "media_player",
+                            "preferred_domain": "media_player",
+                            "commands": {
+                                "cd": {"feature": "source", "name": "CD"},
+                                "video_1": {"feature": "source", "name": "Video 1"},
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
 
     assert spec.capabilities.source_names == {
-        "source_cd": "CD",
-        "source_hdmi_1": "HDMI 1",
+        "cd": "CD",
+        "video_1": "Video 1",
     }
-    assert source_command_for_name(spec, "HDMI 1") == "source_hdmi_1"
+    assert source_command_for_name(spec, "Video 1") == "video_1"
     with pytest.raises(ServiceValidationError, match="has no source Tape"):
         source_command_for_name(spec, "Tape")
 
@@ -161,7 +188,9 @@ def test_media_player_methods_send_expected_command_ids() -> None:
     entity = IRLearningHubMediaPlayerEntity(FakeStore(), spec)
     no_state_write(entity)
     send = AsyncMock()
-    entity.async_send_stored_command = send
+    entity.async_send_feature_command = send
+    raw_send = AsyncMock()
+    entity.async_send_stored_command = raw_send
 
     asyncio.run(entity.async_turn_on())
     asyncio.run(entity.async_media_play())
@@ -187,9 +216,9 @@ def test_media_player_methods_send_expected_command_ids() -> None:
         "volume_down",
         "mute",
         "unmute",
-        "source_cd",
         "power_off",
     ]
+    raw_send.assert_awaited_once_with("source_cd")
     assert entity.state == STATE_OFF
     assert entity.source == "CD"
     assert entity.is_volume_muted is False
@@ -200,7 +229,7 @@ def test_media_player_pause_falls_back_to_play_pause_toggle() -> None:
     entity = IRLearningHubMediaPlayerEntity(FakeStore(), spec)
     no_state_write(entity)
     send = AsyncMock()
-    entity.async_send_stored_command = send
+    entity.async_send_feature_command = send
 
     asyncio.run(entity.async_media_pause())
 
@@ -220,7 +249,7 @@ def test_media_player_power_modes_are_honest() -> None:
     )
     no_state_write(toggle_entity)
     send = AsyncMock()
-    toggle_entity.async_send_stored_command = send
+    toggle_entity.async_send_feature_command = send
 
     asyncio.run(toggle_entity.async_turn_on())
     asyncio.run(toggle_entity.async_turn_off())
@@ -259,7 +288,7 @@ def test_switch_methods_are_optimistic_and_assumed() -> None:
     entity = IRLearningHubSwitchEntity(FakeStore(), spec)
     no_state_write(entity)
     send = AsyncMock()
-    entity.async_send_stored_command = send
+    entity.async_send_feature_command = send
 
     asyncio.run(entity.async_turn_on())
     asyncio.run(entity.async_toggle())
@@ -289,7 +318,10 @@ def test_media_and_switch_managers_remove_registry_entries(monkeypatch) -> None:
                                 "name": "Amp",
                                 "type": device_type,
                                 "preferred_domain": preferred_domain,
-                                "commands": {"power_on": {}, "power_off": {}},
+                                "commands": {
+                                    "on": {"feature": "power_on"},
+                                    "off": {"feature": "power_off"},
+                                },
                             }
                         }
                     }
@@ -360,7 +392,7 @@ def test_cross_domain_transition_remote_to_media_player(monkeypatch) -> None:
                             "name": "Amp",
                             "type": "generic",
                             "preferred_domain": "remote",
-                            "commands": {"play": {}},
+                            "commands": {"play_button": {"feature": "play"}},
                         }
                     }
                 }
