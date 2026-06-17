@@ -36,11 +36,8 @@ async def async_setup_consumer_platform(
     platform_domain: str,
     entity_factory: EntityFactory,
 ) -> None:
-    """Set up one owner-only registry-backed consumer platform."""
+    """Set up one registry-backed consumer platform for the hub entry."""
     domain_data = hass.data.get(DOMAIN, {})
-    if domain_data.get("consumer_owner") != entry.entry_id:
-        async_add_entities([])
-        return
 
     store: IRRegistryStore | None = domain_data.get("store")
     if store is None:

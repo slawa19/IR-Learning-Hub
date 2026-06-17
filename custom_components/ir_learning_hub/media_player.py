@@ -96,7 +96,6 @@ class IRLearningHubMediaPlayerEntity(
 
     def update_spec(self, spec: EntitySpec) -> None:
         """Update media-player metadata from a new desired spec."""
-        super().update_spec(spec)
         self._attr_supported_features = media_player_features(spec)
         self._attr_source_list = [
             spec.capabilities.source_names[command_id]
@@ -104,6 +103,7 @@ class IRLearningHubMediaPlayerEntity(
         ] or None
         if spec.capabilities.power_mode == "none" and self._attr_state == STATE_OFF:
             self._attr_state = STATE_IDLE
+        super().update_spec(spec)
 
     async def async_added_to_hass(self) -> None:
         """Restore the last assumed media state and source."""

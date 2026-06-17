@@ -224,6 +224,31 @@ def test_media_player_methods_send_expected_command_ids() -> None:
     assert entity.is_volume_muted is False
 
 
+def test_media_player_update_spec_writes_new_features_and_sources_immediately() -> None:
+    entity = IRLearningHubMediaPlayerEntity(FakeStore(), spec_from_commands({"play"}))
+    snapshots = []
+
+    def capture_state_write() -> None:
+        snapshots.append(
+            (
+                entity.supported_features,
+                entity.source_list,
+            )
+        )
+
+    entity.async_write_ha_state = capture_state_write
+    entity.entity_id = "media_player.amp"
+
+    entity.update_spec(spec_from_commands({"play", "source_cd"}))
+
+    assert snapshots == [
+        (
+            MediaPlayerEntityFeature.PLAY | MediaPlayerEntityFeature.SELECT_SOURCE,
+            ["CD"],
+        )
+    ]
+
+
 def test_media_player_pause_falls_back_to_play_pause_toggle() -> None:
     spec = spec_from_commands({"play_pause_toggle"})
     entity = IRLearningHubMediaPlayerEntity(FakeStore(), spec)

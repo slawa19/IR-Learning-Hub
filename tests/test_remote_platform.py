@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import asyncio
+from types import MappingProxyType
 from unittest.mock import AsyncMock
 import unittest
 
@@ -14,23 +15,39 @@ import pytest
 
 from homeassistant.exceptions import ServiceValidationError
 
-from custom_components.ir_learning_hub.const import CONF_IEEE, DOMAIN
+from custom_components.ir_learning_hub.const import (
+    CONF_CLUSTER_ID,
+    CONF_ENDPOINT_ID,
+    CONF_IEEE,
+    CONF_LEARN_REASSERT_INTERVAL,
+    CONF_LEARN_TIMEOUT,
+    CONF_PROFILE,
+    DEFAULT_CLUSTER_ID,
+    DEFAULT_ENDPOINT_ID,
+    DEFAULT_LEARN_REASSERT_INTERVAL,
+    DEFAULT_LEARN_TIMEOUT,
+    DEFAULT_PROFILE,
+    DOMAIN,
+    HUB_ENTRY_DATA,
+    TRANSMITTER_SUBENTRY_TYPE,
+)
 from custom_components.ir_learning_hub.errors import IRLearningHubError
 from custom_components.ir_learning_hub import (
-    CONSUMER_PLATFORMS,
-    ENTRY_PLATFORMS,
+    PLATFORMS,
     REGISTERED_SERVICES,
+    _async_handle_entry_update,
     _register_services,
+    _async_migrate_legacy_entries_to_hub,
     resolve_transmitter_ref,
+    async_setup,
     async_setup_entry,
-    async_remove_entry,
     async_unload_entry,
-    _entry_platforms,
     _register_transmitter_device,
-    _remove_entry_and_select_new_owner,
 )
+from homeassistant.config_entries import ConfigSubentry
 from custom_components.ir_learning_hub.infrared import (
     IRLearningHubInfraredEmitter,
+    async_setup_entry as async_setup_infrared_entry,
     _transmitter_device_info,
 )
 from custom_components.ir_learning_hub.ir_command import ZosungCommand
@@ -38,6 +55,7 @@ from custom_components.ir_learning_hub.registry_runtime import EntitySpec, desir
 from custom_components.ir_learning_hub.remote import (
     IRLearningHubRemoteEntity,
     RemoteEntityManager,
+    async_setup_entry as async_setup_remote_entry,
     async_send_registry_command,
 )
 from custom_components.ir_learning_hub.storage import IRRegistryStore
@@ -58,8 +76,29 @@ class FakeStore:
 
 
 class FakeEntry:
-    def __init__(self, entry_id: str) -> None:
+    def __init__(self, entry_id: str, data=None, subentries=None) -> None:
         self.entry_id = entry_id
+        self.data = data or {}
+        self.title = f"Entry {entry_id}"
+        self.subentries = MappingProxyType(
+            {subentry.subentry_id: subentry for subentry in (subentries or [])}
+        )
+        self._unloaders = []
+        self.update_listeners = []
+
+    def get_subentries_of_type(self, subentry_type):
+        return [
+            subentry
+            for subentry in self.subentries.values()
+            if subentry.subentry_type == subentry_type
+        ]
+
+    def add_update_listener(self, listener):
+        self.update_listeners.append(listener)
+        return lambda: self.update_listeners.remove(listener)
+
+    def async_on_unload(self, callback):
+        self._unloaders.append(callback)
 
 
 class FakeConfigEntries:
@@ -68,6 +107,7 @@ class FakeConfigEntries:
         self.unloaded = []
         self.reloads = []
         self._entries = []
+        self.removed = []
 
     async def async_forward_entry_setups(self, entry, platforms):
         self.forwarded.append((entry.entry_id, list(platforms)))
@@ -81,6 +121,28 @@ class FakeConfigEntries:
 
     def async_entries(self, domain=None):
         return list(self._entries)
+
+    def async_get_known_entry(self, entry_id):
+        for entry in self._entries:
+            if entry.entry_id == entry_id:
+                return entry
+        raise KeyError(entry_id)
+
+    def async_update_entry(self, entry, **changes):
+        if "data" in changes:
+            entry.data = changes["data"]
+        return True
+
+    def async_add_subentry(self, entry, subentry):
+        entry.subentries = MappingProxyType(
+            dict(entry.subentries) | {subentry.subentry_id: subentry}
+        )
+        return True
+
+    async def async_remove(self, entry_id):
+        self.removed.append(entry_id)
+        self._entries = [entry for entry in self._entries if entry.entry_id != entry_id]
+        return {"require_restart": False}
 
 
 class FakeServices:
@@ -116,7 +178,7 @@ class FakeSetupStore:
         return None
 
     async def async_upsert_transmitter_from_entry(self, entry_data):
-        return "0011"
+        return entry_data[CONF_IEEE].replace(":", "").lower()
 
     async def async_reconcile_transmitters(self, valid_keys):
         self.valid_keys = valid_keys
@@ -129,6 +191,30 @@ class FakeRemovalStore:
 
     async def async_save(self) -> None:
         self.saved = True
+
+
+def make_transmitter_subentry(
+    ieee: str,
+    *,
+    subentry_id: str,
+    title: str | None = None,
+):
+    return ConfigSubentry(
+        data=MappingProxyType(
+            {
+                CONF_IEEE: ieee,
+                CONF_PROFILE: DEFAULT_PROFILE,
+                CONF_ENDPOINT_ID: DEFAULT_ENDPOINT_ID,
+                CONF_CLUSTER_ID: DEFAULT_CLUSTER_ID,
+                CONF_LEARN_TIMEOUT: DEFAULT_LEARN_TIMEOUT,
+                CONF_LEARN_REASSERT_INTERVAL: DEFAULT_LEARN_REASSERT_INTERVAL,
+            }
+        ),
+        subentry_id=subentry_id,
+        subentry_type=TRANSMITTER_SUBENTRY_TYPE,
+        title=title or ieee,
+        unique_id=ieee.replace(":", "").lower(),
+    )
 
 
 def test_emitter_forwards_zosung_command_to_adapter() -> None:
@@ -152,6 +238,29 @@ def test_emitter_device_info_attaches_to_registered_transmitter_device() -> None
     assert device_info == {"identifiers": {(DOMAIN, "0011")}}
 
 
+def test_infrared_setup_adds_one_emitter_per_transmitter_subentry() -> None:
+    store = FakeStore()
+    adapter = object()
+    entry = FakeEntry(
+        "hub",
+        data=HUB_ENTRY_DATA,
+        subentries=[
+            make_transmitter_subentry("00:11", subentry_id="sub-1"),
+            make_transmitter_subentry("00:22", subentry_id="sub-2"),
+        ],
+    )
+    hass = FakeHass({"store": store, "adapter": adapter})
+    added = []
+
+    def async_add_entities(entities, update_before_add=False, *, config_subentry_id=None):
+        added.append((config_subentry_id, entities))
+
+    asyncio.run(async_setup_infrared_entry(hass, entry, async_add_entities))
+
+    assert [item[0] for item in added] == ["sub-1", "sub-2"]
+    assert [item[1][0].unique_id for item in added] == ["0011", "0022"]
+
+
 def test_transmitter_device_registration_owns_ts1201_metadata(monkeypatch) -> None:
     calls = []
     registry = type(
@@ -162,18 +271,27 @@ def test_transmitter_device_registration_owns_ts1201_metadata(monkeypatch) -> No
     entry = type(
         "Entry",
         (),
-        {"entry_id": "entry-1", "data": {CONF_IEEE: "AA:BB:CC"}},
+        {"entry_id": "entry-1"},
+    )()
+    subentry = type(
+        "Subentry",
+        (),
+        {
+            "subentry_id": "sub-1",
+            "data": {CONF_IEEE: "AA:BB:CC"},
+        },
     )()
     monkeypatch.setattr(
         "custom_components.ir_learning_hub.dr.async_get",
         lambda hass: registry,
     )
 
-    _register_transmitter_device(object(), entry, "aa_bb_cc")
+    _register_transmitter_device(object(), entry, subentry, "aa_bb_cc")
 
     assert calls == [
         {
             "config_entry_id": "entry-1",
+            "config_subentry_id": "sub-1",
             "identifiers": {(DOMAIN, "aa_bb_cc")},
             "via_device": ("zha", "aa:bb:cc"),
             "name": "IR transmitter aa:bb:cc",
@@ -330,31 +448,28 @@ def test_remote_power_command_raises_service_validation_error() -> None:
         asyncio.run(entity.async_turn_on())
 
 
-def test_consumer_owner_platforms_and_re_election() -> None:
-    owner = object()
-    secondary = object()
-    domain_data = {
-        "consumer_owner": "owner",
-        "entries": {"owner": owner, "secondary": secondary},
-    }
+def test_remote_platform_sets_up_on_hub_entry_without_owner_gate() -> None:
+    hass = FakeHass({"store": FakeStore()})
+    entry = FakeEntry("hub", data=HUB_ENTRY_DATA)
+    added = []
 
-    assert CONSUMER_PLATFORMS[0] in _entry_platforms(domain_data, "owner")
-    assert CONSUMER_PLATFORMS[0] not in _entry_platforms(domain_data, "secondary")
+    asyncio.run(async_setup_remote_entry(hass, entry, lambda entities: added.extend(entities)))
 
-    new_owner = _remove_entry_and_select_new_owner(domain_data, "owner")
-
-    assert new_owner == "secondary"
-    assert domain_data["consumer_owner"] == "secondary"
+    assert "remote_manager" in hass.data[DOMAIN]
 
 
-def test_setup_entry_tracks_forwarded_platforms_after_forward(monkeypatch) -> None:
+def test_setup_entry_tracks_hub_platforms_and_transmitter_subentries(monkeypatch) -> None:
     hass = FakeHass()
-    entry = type(
-        "Entry",
-        (),
-        {"entry_id": "owner", "data": {CONF_IEEE: "00:11"}},
-    )()
+    entry = FakeEntry(
+        "hub",
+        data=HUB_ENTRY_DATA,
+        subentries=[
+            make_transmitter_subentry("00:11", subentry_id="sub-1"),
+            make_transmitter_subentry("00:22", subentry_id="sub-2"),
+        ],
+    )
     hass.config_entries._entries = [entry]
+    registered = []
     monkeypatch.setattr(
         "custom_components.ir_learning_hub.IRRegistryStore",
         lambda hass: FakeSetupStore(),
@@ -373,18 +488,27 @@ def test_setup_entry_tracks_forwarded_platforms_after_forward(monkeypatch) -> No
     )
     monkeypatch.setattr(
         "custom_components.ir_learning_hub._register_transmitter_device",
-        lambda hass, entry, transmitter_id: None,
+        lambda hass, entry, subentry, transmitter_id: registered.append(
+            (subentry.subentry_id, transmitter_id)
+        ),
     )
 
     assert asyncio.run(async_setup_entry(hass, entry)) is True
 
     domain_data = hass.data[DOMAIN]
-    expected_platforms = ENTRY_PLATFORMS + CONSUMER_PLATFORMS
-    assert hass.config_entries.forwarded == [("owner", expected_platforms)]
-    assert domain_data["entries"] == {"owner": entry}
-    assert domain_data["consumer_owner"] == "owner"
-    assert domain_data["forwarded"] == {"owner": expected_platforms}
-    assert domain_data["store"].valid_keys == {"0011"}
+    assert hass.config_entries.forwarded == [("hub", PLATFORMS)]
+    assert domain_data["store"].valid_keys == {"0011", "0022"}
+    assert registered == [("sub-1", "0011"), ("sub-2", "0022")]
+    assert len(entry.update_listeners) == 1
+
+
+def test_entry_update_listener_reloads_hub_on_subentry_change() -> None:
+    hass = FakeHass()
+    entry = FakeEntry("hub", data=HUB_ENTRY_DATA)
+
+    asyncio.run(_async_handle_entry_update(hass, entry))
+
+    assert hass.config_entries.reloads == ["hub"]
 
 
 def test_resolve_transmitter_ref_accepts_key_ieee_and_entity_id(monkeypatch) -> None:
@@ -427,55 +551,65 @@ def test_resolve_transmitter_ref_rejects_unknown(monkeypatch) -> None:
         resolve_transmitter_ref(object(), FakeStore(), "nope")
 
 
-def test_remove_owner_re_elects_once_and_schedules_reload() -> None:
-    domain_data = {
-        "consumer_owner": "owner",
-        "entries": {
-            "owner": FakeEntry("owner"),
-            "secondary": FakeEntry("secondary"),
-            "third": FakeEntry("third"),
+def test_async_setup_migrates_single_legacy_entry_to_hub_subentry() -> None:
+    entry = FakeEntry(
+        "legacy-1",
+        data={
+            CONF_IEEE: "00:11",
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_ENDPOINT_ID: DEFAULT_ENDPOINT_ID,
+            CONF_CLUSTER_ID: DEFAULT_CLUSTER_ID,
+            CONF_LEARN_TIMEOUT: DEFAULT_LEARN_TIMEOUT,
+            CONF_LEARN_REASSERT_INTERVAL: DEFAULT_LEARN_REASSERT_INTERVAL,
         },
-        "forwarded": {
-            "owner": ENTRY_PLATFORMS + CONSUMER_PLATFORMS,
-            "secondary": ENTRY_PLATFORMS,
-            "third": ENTRY_PLATFORMS,
+    )
+    hass = FakeHass()
+    hass.config_entries._entries = [entry]
+
+    assert asyncio.run(async_setup(hass, {})) is True
+
+    assert entry.data == HUB_ENTRY_DATA
+    subentries = entry.get_subentries_of_type(TRANSMITTER_SUBENTRY_TYPE)
+    assert len(subentries) == 1
+    assert subentries[0].unique_id == "0011"
+    assert hass.config_entries.removed == []
+
+
+def test_legacy_migration_merges_multiple_entries_into_one_hub() -> None:
+    hub = FakeEntry(
+        "legacy-1",
+        data={
+            CONF_IEEE: "00:11",
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_ENDPOINT_ID: DEFAULT_ENDPOINT_ID,
+            CONF_CLUSTER_ID: DEFAULT_CLUSTER_ID,
+            CONF_LEARN_TIMEOUT: DEFAULT_LEARN_TIMEOUT,
+            CONF_LEARN_REASSERT_INTERVAL: DEFAULT_LEARN_REASSERT_INTERVAL,
         },
-        "learn_tasks": {},
+    )
+    secondary = FakeEntry(
+        "legacy-2",
+        data={
+            CONF_IEEE: "00:22",
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_ENDPOINT_ID: DEFAULT_ENDPOINT_ID,
+            CONF_CLUSTER_ID: DEFAULT_CLUSTER_ID,
+            CONF_LEARN_TIMEOUT: DEFAULT_LEARN_TIMEOUT,
+            CONF_LEARN_REASSERT_INTERVAL: DEFAULT_LEARN_REASSERT_INTERVAL,
+        },
+    )
+    hass = FakeHass()
+    hass.config_entries._entries = [hub, secondary]
+
+    asyncio.run(_async_migrate_legacy_entries_to_hub(hass))
+    asyncio.run(_async_migrate_legacy_entries_to_hub(hass))
+
+    assert hub.data == HUB_ENTRY_DATA
+    assert {subentry.unique_id for subentry in hub.get_subentries_of_type(TRANSMITTER_SUBENTRY_TYPE)} == {
+        "0011",
+        "0022",
     }
-    hass = FakeHass(domain_data)
-
-    asyncio.run(async_remove_entry(hass, FakeEntry("owner")))
-
-    assert domain_data["consumer_owner"] == "secondary"
-    assert set(domain_data["entries"]) == {"secondary", "third"}
-    assert set(domain_data["forwarded"]) == {"secondary", "third"}
-    assert hass.config_entries.reloads == ["secondary"]
-    assert DOMAIN in hass.data
-
-
-def test_remove_entry_deletes_transmitter_from_store() -> None:
-    store = FakeRemovalStore()
-    domain_data = {
-        "consumer_owner": "owner",
-        "entries": {"owner": FakeEntry("owner"), "secondary": FakeEntry("secondary")},
-        "forwarded": {
-            "owner": ENTRY_PLATFORMS + CONSUMER_PLATFORMS,
-            "secondary": ENTRY_PLATFORMS,
-        },
-        "learn_tasks": {},
-        "store": store,
-    }
-    hass = FakeHass(domain_data)
-    entry = type(
-        "Entry",
-        (),
-        {"entry_id": "owner", "data": {CONF_IEEE: "00:11"}},
-    )()
-
-    asyncio.run(async_remove_entry(hass, entry))
-
-    assert store.data["transmitters"] == {}
-    assert store.saved is True
+    assert hass.config_entries.removed == ["legacy-2"]
 
 
 def test_store_reconcile_prunes_orphans_and_list_commands_shows_valid_transmitters() -> None:
@@ -668,84 +802,23 @@ def test_remote_manager_coalesces_trailing_edge_reconcile(monkeypatch) -> None:
     assert run_order == ["run", "run"]
 
 
-def test_remove_non_owner_does_not_reload_or_change_owner() -> None:
-    domain_data = {
-        "consumer_owner": "owner",
-        "entries": {"owner": FakeEntry("owner"), "secondary": FakeEntry("secondary")},
-        "forwarded": {
-            "owner": ENTRY_PLATFORMS + CONSUMER_PLATFORMS,
-            "secondary": ENTRY_PLATFORMS,
-        },
-        "learn_tasks": {},
-    }
-    hass = FakeHass(domain_data)
-
-    asyncio.run(async_remove_entry(hass, FakeEntry("secondary")))
-
-    assert domain_data["consumer_owner"] == "owner"
-    assert set(domain_data["entries"]) == {"owner"}
-    assert set(domain_data["forwarded"]) == {"owner"}
-    assert hass.config_entries.reloads == []
-    assert DOMAIN in hass.data
-
-
-def test_remove_last_entry_tears_down_services_and_domain_data() -> None:
+def test_async_unload_entry_unloads_all_platforms_and_tears_down_domain() -> None:
     task = type("Task", (), {"cancelled": False})()
     task.cancel = lambda: setattr(task, "cancelled", True)
     domain_data = {
-        "consumer_owner": "owner",
-        "entries": {"owner": FakeEntry("owner")},
-        "forwarded": {"owner": ENTRY_PLATFORMS + CONSUMER_PLATFORMS},
         "learn_tasks": {"00:11": task},
     }
     hass = FakeHass(domain_data)
+    entry = FakeEntry("hub", data=HUB_ENTRY_DATA)
 
-    asyncio.run(async_remove_entry(hass, FakeEntry("owner")))
+    assert asyncio.run(async_unload_entry(hass, entry)) is True
 
     assert task.cancelled
+    assert hass.config_entries.unloaded == [("hub", PLATFORMS)]
     assert hass.services.removed == [
         (DOMAIN, service) for service in REGISTERED_SERVICES
     ]
     assert DOMAIN not in hass.data
-
-
-def test_unload_entry_uses_forwarded_platforms_not_current_owner() -> None:
-    domain_data = {
-        "consumer_owner": "secondary",
-        "entries": {"owner": FakeEntry("owner"), "secondary": FakeEntry("secondary")},
-        "forwarded": {
-            "owner": ENTRY_PLATFORMS + CONSUMER_PLATFORMS,
-            "secondary": ENTRY_PLATFORMS,
-        },
-    }
-    hass = FakeHass(domain_data)
-
-    assert asyncio.run(async_unload_entry(hass, FakeEntry("secondary"))) is True
-
-    assert hass.config_entries.unloaded == [("secondary", ENTRY_PLATFORMS)]
-    assert domain_data["consumer_owner"] == "secondary"
-    assert set(domain_data["entries"]) == {"owner", "secondary"}
-    assert hass.services.removed == []
-
-
-def test_reload_unload_keeps_owner_entries_and_services() -> None:
-    domain_data = {
-        "consumer_owner": "owner",
-        "entries": {"owner": FakeEntry("owner")},
-        "forwarded": {"owner": ENTRY_PLATFORMS + CONSUMER_PLATFORMS},
-        "learn_tasks": {},
-    }
-    hass = FakeHass(domain_data)
-
-    assert asyncio.run(async_unload_entry(hass, FakeEntry("owner"))) is True
-
-    assert hass.config_entries.unloaded == [
-        ("owner", ENTRY_PLATFORMS + CONSUMER_PLATFORMS)
-    ]
-    assert domain_data["consumer_owner"] == "owner"
-    assert set(domain_data["entries"]) == {"owner"}
-    assert DOMAIN in hass.data
-    assert hass.services.removed == []
 
 
 def test_remote_manager_reconcile_is_idempotent_and_removes_missing_entities(monkeypatch) -> None:

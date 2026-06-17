@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 DOMAIN = "ir_learning_hub"
+HUB_ENTRY_DATA = {"hub": True}
+TRANSMITTER_SUBENTRY_TYPE = "transmitter"
 
 SIGNAL_REGISTRY_UPDATED = f"{DOMAIN}_registry_updated"
 

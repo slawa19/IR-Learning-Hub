@@ -15,7 +15,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_IEEE, DOMAIN
+from .const import CONF_IEEE, DOMAIN, TRANSMITTER_SUBENTRY_TYPE
 from .ir_command import command_send_payload
 from .storage import IRRegistryStore, normalize_ieee
 from .zha_adapter import ZHAAdapter
@@ -26,7 +26,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the IR Learning Hub infrared emitter for one transmitter entry."""
+    """Set up IR Learning Hub infrared emitters for transmitter subentries."""
     domain_data = hass.data.get(DOMAIN, {})
     store: IRRegistryStore | None = domain_data.get("store")
     adapter: ZHAAdapter | None = domain_data.get("adapter")
@@ -34,10 +34,12 @@ async def async_setup_entry(
         async_add_entities([])
         return
 
-    transmitter_id = normalize_ieee(entry.data[CONF_IEEE])
-    async_add_entities(
-        [IRLearningHubInfraredEmitter(store, adapter, transmitter_id, entry.data)]
-    )
+    for subentry in entry.get_subentries_of_type(TRANSMITTER_SUBENTRY_TYPE):
+        transmitter_id = normalize_ieee(subentry.data[CONF_IEEE])
+        async_add_entities(
+            [IRLearningHubInfraredEmitter(store, adapter, transmitter_id, dict(subentry.data))],
+            config_subentry_id=subentry.subentry_id,
+        )
 
 
 class IRLearningHubInfraredEmitter(InfraredEmitterEntity):
