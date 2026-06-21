@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -19,9 +20,10 @@ from .const import DOMAIN, SIGNAL_REGISTRY_UPDATED
 from .errors import IRLearningHubError
 from .ir_command import ZosungCommand
 from .registry_runtime import EntitySpec, desired_entities_for_domain
-from .storage import IRRegistryStore
+from .storage import IRRegistryStore, normalize_ieee
 
 INFRARED_DOMAIN = "infrared"
+_LOGGER = logging.getLogger(__name__)
 
 
 EntityFactory = Callable[[IRRegistryStore, EntitySpec], Entity]
@@ -265,7 +267,12 @@ def spec_transmitter_device_id(
     """Return the resolved transmitter device identifier for DeviceInfo."""
     try:
         return transmitter_id_for_store_item(store, resolve_spec_transmitter(store, spec))
-    except (IRLearningHubError, ServiceValidationError):
+    except (IRLearningHubError, ServiceValidationError) as err:
+        _LOGGER.warning(
+            "Could not resolve transmitter device for %s: %s",
+            spec.device_identifier,
+            err,
+        )
         return None
 
 
@@ -274,8 +281,19 @@ def transmitter_id_for_store_item(
     transmitter: dict[str, Any],
 ) -> str:
     """Return the registry transmitter id for a resolved transmitter object."""
+    transmitter_ieee = transmitter.get("ieee")
+    normalized_ieee = (
+        normalize_ieee(str(transmitter_ieee))
+        if transmitter_ieee is not None
+        else None
+    )
     for transmitter_id, item in store.data.get("transmitters", {}).items():
-        if item is transmitter or item.get("ieee") == transmitter.get("ieee"):
+        item_ieee = item.get("ieee")
+        if item is transmitter or (
+            normalized_ieee is not None
+            and item_ieee is not None
+            and normalize_ieee(str(item_ieee)) == normalized_ieee
+        ):
             return transmitter_id
     raise ServiceValidationError("Resolved IR transmitter is not present in the registry")
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from homeassistant.components.infrared import (
@@ -19,6 +20,8 @@ from .const import CONF_IEEE, DOMAIN, TRANSMITTER_SUBENTRY_TYPE
 from .ir_command import command_send_payload
 from .storage import IRRegistryStore, normalize_ieee
 from .zha_adapter import ZHAAdapter
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -74,6 +77,11 @@ class IRLearningHubInfraredEmitter(InfraredEmitterEntity):
             raise HomeAssistantError(str(err)) from err
 
         await self._adapter.async_send(transmitter, code)
+        _LOGGER.debug(
+            "IR send dispatched to ZHA (delivery not confirmed): transmitter=%s code_len=%s",
+            transmitter.get("ieee"),
+            len(code),
+        )
 
 
 def _transmitter_device_info(

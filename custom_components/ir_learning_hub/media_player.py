@@ -176,9 +176,16 @@ class IRLearningHubMediaPlayerEntity(
     async def async_mute_volume(self, mute: bool) -> None:
         """Send mute or unmute command."""
         if mute:
-            command_id = _first_supported(self._spec, "mute", "mute_toggle")
+            command_id = _first_supported_or_none(self._spec, "mute", "mute_toggle")
         else:
-            command_id = _first_supported(self._spec, "unmute", "mute_toggle")
+            command_id = _first_supported_or_none(
+                self._spec,
+                "unmute",
+                "mute_toggle",
+                "mute",
+            )
+        if command_id is None:
+            return
         await self.async_send_feature_command(command_id)
         self._attr_is_volume_muted = mute
         self.async_write_ha_state()
@@ -223,9 +230,17 @@ class MediaPlayerEntityManager(ConsumerEntityManager):
 
 
 def _first_supported(spec: EntitySpec, *command_ids: str) -> str:
-    for command_id in command_ids:
-        if command_id in spec.feature_keys:
-            return command_id
+    command_id = _first_supported_or_none(spec, *command_ids)
+    if command_id is not None:
+        return command_id
     raise ServiceValidationError(
         f"IR device {spec.device_identifier} has no supported command among {command_ids}"
     )
+
+
+def _first_supported_or_none(spec: EntitySpec, *command_ids: str) -> str | None:
+    """Return the first supported command id, or None if none exist."""
+    for command_id in command_ids:
+        if command_id in spec.feature_keys:
+            return command_id
+    return None

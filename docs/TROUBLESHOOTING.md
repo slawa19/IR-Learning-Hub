@@ -102,10 +102,10 @@ Check:
 The card logs its loaded version in the browser console:
 
 ```text
-IR-LEARNING-HUB-CARD 0.3.0
+IR-LEARNING-HUB-CARD 0.3.3
 ```
 
-If the console shows an older version after updating, restart Home Assistant and reload the dashboard. The card script is registered without long-lived cache headers.
+If the console shows an older version after updating, restart Home Assistant and reload the dashboard. The integration auto-syncs the Lovelace resource URL with a version query string after startup, so the resource should move forward without manual `?v=` edits.
 
 ## Export profile copy does not put JSON on the clipboard
 

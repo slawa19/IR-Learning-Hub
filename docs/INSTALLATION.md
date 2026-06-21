@@ -61,10 +61,10 @@ Use category `Integration`.
 
 Install the latest available release, restart Home Assistant, then add the integration from `Settings -> Devices & services`.
 
-For the entity-first release, install `v0.3.0` or newer. The integration manifest should contain:
+Install `v0.3.3` or newer. The integration manifest should contain:
 
 ```json
-{ "version": "0.3.0" }
+{ "version": "0.3.3" }
 ```
 
 ## Add the Integration
@@ -140,19 +140,19 @@ You can also validate through the Lovelace card:
 
 ## Updating
 
-### HACS update to `v0.3.0`
+### HACS update to `v0.3.3`
 
 1. In HACS, open `IR Learning Hub`.
-2. Install release `v0.3.0` or newer.
+2. Install release `v0.3.3` or newer.
 3. Restart Home Assistant.
 4. Reload the dashboard in the browser.
 5. Open `Settings -> Devices & services -> Entities` and verify the new entities.
 
 If HACS still shows an older version, reload HACS data and check for the latest release again.
 
-### Manual update to `v0.3.0`
+### Manual update to `v0.3.3`
 
-1. Download or checkout tag `v0.3.0`.
+1. Download or checkout tag `v0.3.3`.
 2. Replace the files under:
 
    ```text
@@ -162,15 +162,17 @@ If HACS still shows an older version, reload HACS data and check for the latest 
 3. Confirm the installed manifest says:
 
    ```json
-   { "version": "0.3.0" }
+   { "version": "0.3.3" }
    ```
 
 4. Restart Home Assistant.
 5. Reload the dashboard in the browser.
 
+The Lovelace resource URL stays the same in YAML, but in storage mode the integration now auto-syncs the actual stored resource to a versioned URL after startup. You do not need to manually append or edit `?v=...`.
+
 ### Post-update validation
 
-Updating to `v0.3.0` runs a one-time migration that reshapes the old
+Updating to `v0.3.0` or newer runs a one-time migration that reshapes the old
 one-entry-per-transmitter setup into a single hub entry with transmitter
 subentries. Learned commands are preserved (the registry store is untouched).
 After restart, check:

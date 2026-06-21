@@ -20,7 +20,13 @@ from homeassistant.helpers import (
     device_registry as dr,
     entity_registry as er,
 )
+from homeassistant.helpers.start import async_at_start
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.const import CONF_ID, CONF_TYPE, CONF_URL
+from homeassistant.components.lovelace.const import (
+    CONF_RESOURCE_TYPE_WS,
+    LOVELACE_DATA,
+)
 
 from .const import (
     COMMAND_FEATURES,
@@ -33,6 +39,7 @@ from .const import (
     DOMAIN,
     ERROR_CODE_EMPTY,
     ERROR_CODE_GENERATION,
+    ERROR_COMMAND_NOT_FOUND,
     ERROR_LEARN_TIMEOUT,
     ERROR_UNEXPECTED,
     SERVICE_ADD_COMMAND,
@@ -60,6 +67,7 @@ from .const import (
     STATUS_LEARNING,
     STATUS_SENDING,
     HUB_ENTRY_DATA,
+    HUB_TITLE,
     PREFERRED_DOMAINS,
     TRANSMITTER_SUBENTRY_TYPE,
 )
@@ -221,6 +229,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up IR Learning Hub from the single hub config entry."""
     hass.data.setdefault(DOMAIN, {})
     domain_data = hass.data[DOMAIN]
+    entry_subentry_ids = _transmitter_subentry_unique_ids(entry)
+    if entry.data.get("hub") and entry.title != HUB_TITLE:
+        hass.config_entries.async_update_entry(entry, title=HUB_TITLE)
 
     if "store" not in domain_data:
         store = IRRegistryStore(hass)
@@ -235,20 +246,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data["frontend_registered"] = True
 
     store: IRRegistryStore = domain_data["store"]
+    _reap_orphan_virtual_devices(hass, entry, store)
     transmitter_subentries = _transmitter_subentries(entry)
     for subentry in transmitter_subentries:
         transmitter_id = await store.async_upsert_transmitter_from_entry(dict(subentry.data))
         _register_transmitter_device(hass, entry, subentry, transmitter_id)
 
-    valid_transmitter_ids = {
-        normalize_ieee(subentry.data[CONF_IEEE])
-        for subentry in transmitter_subentries
-    }
-    await store.async_reconcile_transmitters(valid_transmitter_ids)
+    if transmitter_subentries:
+        valid_transmitter_ids = {
+            normalize_ieee(subentry.data[CONF_IEEE])
+            for subentry in transmitter_subentries
+        }
+        await store.async_reconcile_transmitters(valid_transmitter_ids)
 
     if not domain_data.get("services_registered"):
         _register_services(hass)
         domain_data["services_registered"] = True
+    domain_data.setdefault("entry_subentry_ids", {})[entry.entry_id] = entry_subentry_ids
 
     entry.async_on_unload(entry.add_update_listener(_async_handle_entry_update))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -261,6 +275,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         domain_data = hass.data.get(DOMAIN)
         if domain_data is not None:
+            domain_data.get("entry_subentry_ids", {}).pop(entry.entry_id, None)
             _teardown_domain(hass, domain_data)
     return unload_ok
 
@@ -289,7 +304,8 @@ async def _async_migrate_legacy_entries_to_hub(hass: HomeAssistant) -> None:
         hub_transmitter = _legacy_transmitter_data(hub_entry)
         if hub_transmitter is not None:
             _ensure_transmitter_subentry(hass, hub_entry, hub_transmitter, hub_entry.title)
-        hass.config_entries.async_update_entry(hub_entry, data=HUB_ENTRY_DATA)
+            _cleanup_legacy_entry_level_transmitter_device(hass, hub_entry, hub_transmitter)
+        hass.config_entries.async_update_entry(hub_entry, data=HUB_ENTRY_DATA, title=HUB_TITLE)
 
     for legacy_entry in legacy_entries:
         if legacy_entry.entry_id == hub_entry.entry_id:
@@ -315,6 +331,15 @@ def _entry_sort_key(entry: ConfigEntry) -> tuple[str, str]:
 def _transmitter_subentries(entry: ConfigEntry) -> list[ConfigSubentry]:
     """Return transmitter subentries for the hub entry."""
     return entry.get_subentries_of_type(TRANSMITTER_SUBENTRY_TYPE)
+
+
+def _transmitter_subentry_unique_ids(entry: ConfigEntry) -> set[str]:
+    """Return the current transmitter subentry unique IDs for an entry."""
+    return {
+        subentry.unique_id
+        for subentry in _transmitter_subentries(entry)
+        if subentry.unique_id is not None
+    }
 
 
 def _is_legacy_transmitter_entry(entry: ConfigEntry) -> bool:
@@ -368,7 +393,8 @@ def _register_transmitter_device(
 ) -> None:
     """Register the integration transmitter device before entities attach to it."""
     ieee = str(subentry.data[CONF_IEEE]).strip().lower()
-    dr.async_get(hass).async_get_or_create(
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_or_create(
         config_entry_id=entry.entry_id,
         config_subentry_id=subentry.subentry_id,
         identifiers={(DOMAIN, transmitter_id)},
@@ -377,6 +403,76 @@ def _register_transmitter_device(
         manufacturer="Tuya",
         model="TS1201 / MOES UFO-R11",
     )
+    config_entries_subentries = getattr(device, "config_entries_subentries", {})
+    entry_subentries = config_entries_subentries.get(entry.entry_id, set())
+    if None in entry_subentries:
+        dev_reg.async_update_device(
+            device.id,
+            add_config_entry_id=entry.entry_id,
+            add_config_subentry_id=subentry.subentry_id,
+            remove_config_entry_id=entry.entry_id,
+            remove_config_subentry_id=None,
+        )
+
+
+def _reap_orphan_virtual_devices(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    store: IRRegistryStore,
+) -> None:
+    """Remove device-registry virtual devices that no longer exist in the store."""
+    try:
+        dev_reg = dr.async_get(hass)
+    except RuntimeError:
+        return
+    for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        for domain, value in device.identifiers:
+            if domain != DOMAIN or "__" not in value:
+                continue
+            location_id, ir_device_id = value.split("__", 1)
+            location = store.data.get("locations", {}).get(location_id, {})
+            devices = location.get("devices", {})
+            if ir_device_id in devices:
+                continue
+            dev_reg.async_remove_device(device.id)
+            break
+
+
+def _cleanup_legacy_entry_level_transmitter_device(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    transmitter_data: dict[str, Any],
+) -> None:
+    """Strip a stale entry-level transmitter device association after promotion."""
+    transmitter_id = normalize_ieee(str(transmitter_data[CONF_IEEE]).strip().lower())
+    try:
+        dev_reg = dr.async_get(hass)
+    except RuntimeError:
+        return
+    device = dev_reg.async_get_device(identifiers={(DOMAIN, transmitter_id)})
+    if device is None:
+        return
+    config_entries_subentries = getattr(device, "config_entries_subentries", {})
+    entry_subentries = config_entries_subentries.get(entry.entry_id, set())
+    if None not in entry_subentries:
+        return
+    matching_subentry = next(
+        (
+            subentry
+            for subentry in _transmitter_subentries(entry)
+            if subentry.unique_id == transmitter_id
+        ),
+        None,
+    )
+    if matching_subentry is None:
+        return
+    dev_reg.async_update_device(
+        device.id,
+        add_config_entry_id=entry.entry_id,
+        add_config_subentry_id=matching_subentry.subentry_id,
+        remove_config_entry_id=entry.entry_id,
+        remove_config_subentry_id=None,
+    )
 
 
 async def _async_handle_entry_update(
@@ -384,7 +480,41 @@ async def _async_handle_entry_update(
     entry: ConfigEntry,
 ) -> None:
     """Reload the hub entry when subentries change."""
+    domain_data = hass.data.get(DOMAIN, {})
+    current_ids = _transmitter_subentry_unique_ids(entry)
+    known_ids = domain_data.setdefault("entry_subentry_ids", {}).get(entry.entry_id)
+    if known_ids is None:
+        domain_data["entry_subentry_ids"][entry.entry_id] = current_ids
+        return
+    if current_ids == known_ids:
+        return
+    domain_data["entry_subentry_ids"][entry.entry_id] = current_ids
     hass.config_entries.async_schedule_reload(entry.entry_id)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    device_entry: dr.DeviceEntry,
+) -> bool:
+    """Handle device-registry removals for virtual consumer devices only."""
+    del config_entry
+    for domain, value in device_entry.identifiers:
+        if domain != DOMAIN:
+            continue
+        if "__" not in value:
+            return False
+        location_id, ir_device_id = value.split("__", 1)
+        store: IRRegistryStore | None = hass.data.get(DOMAIN, {}).get("store")
+        if store is None:
+            return True
+        try:
+            await store.delete_device(location_id, ir_device_id, confirm=True)
+        except IRLearningHubError as err:
+            if err.code != ERROR_COMMAND_NOT_FOUND:
+                raise
+        return True
+    return True
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -405,6 +535,71 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         )
     except Exception as err:
         _LOGGER.warning("Could not register IR Learning Hub frontend: %s", err)
+
+    async def _sync(_: Any = None) -> None:
+        try:
+            await _async_sync_frontend_resource(hass, card_path)
+        except Exception as err:
+            _LOGGER.debug(
+                "Could not sync IR Learning Hub Lovelace resource: %s",
+                err,
+            )
+
+    async_at_start(hass, _sync)
+
+
+def _frontend_resource_url(card_path: Path) -> str:
+    """Return a cache-busted Lovelace resource URL for the card."""
+    return f"{FRONTEND_URL}?v={card_path.stat().st_mtime_ns}"
+
+
+def _normalize_frontend_resource_url(url: str) -> str:
+    """Return the stable path portion of a Lovelace resource URL."""
+    return url.split("?", 1)[0]
+
+
+async def _async_sync_frontend_resource(
+    hass: HomeAssistant,
+    card_path: Path,
+) -> None:
+    """Ensure Lovelace storage-mode resources point at a fresh card URL."""
+    lovelace_data = hass.data.get(LOVELACE_DATA)
+    if lovelace_data is None:
+        return
+
+    resources = getattr(lovelace_data, "resources", None)
+    if resources is None or not hasattr(resources, "async_update_item"):
+        return
+
+    await resources.async_get_info()
+    items = list(resources.async_items() or [])
+    target_url = _frontend_resource_url(card_path)
+    matching = [
+        item
+        for item in items
+        if item.get(CONF_TYPE) == "module"
+        and _normalize_frontend_resource_url(item.get(CONF_URL, "")) == FRONTEND_URL
+    ]
+    if not matching:
+        await resources.async_create_item(
+            {
+                CONF_RESOURCE_TYPE_WS: "module",
+                CONF_URL: target_url,
+            }
+        )
+        return
+
+    primary = matching[0]
+    if primary.get(CONF_URL) != target_url:
+        _LOGGER.debug(
+            "Syncing IR Learning Hub card resource %s -> %s",
+            primary.get(CONF_URL),
+            target_url,
+        )
+        await resources.async_update_item(primary[CONF_ID], {CONF_URL: target_url})
+
+    for duplicate in matching[1:]:
+        await resources.async_delete_item(duplicate[CONF_ID])
 
 
 def _register_services(hass: HomeAssistant) -> None:

@@ -113,7 +113,7 @@ class IRRegistryStore:
         profile_id = entry_data.get("profile", "ts1201_zosung")
         profile = get_profile(profile_id)
         existing = self.data["transmitters"].get(transmitter_id, {})
-        self.data["transmitters"][transmitter_id] = {
+        updated = {
             "ieee": ieee,
             "name": existing.get("name") or f"IR transmitter {ieee}",
             "manufacturer": existing.get("manufacturer"),
@@ -136,11 +136,16 @@ class IRRegistryStore:
             "enabled": existing.get("enabled", True),
             "needs_confirmation": existing.get("needs_confirmation", False),
         }
+        if existing == updated:
+            return transmitter_id
+        self.data["transmitters"][transmitter_id] = updated
         await self.async_save()
         return transmitter_id
 
     async def async_reconcile_transmitters(self, valid_keys: set[str]) -> None:
         """Drop orphaned transmitters that no longer have a config entry."""
+        if not valid_keys:
+            return
         transmitters = self.data.setdefault("transmitters", {})
         stale_keys = [key for key in transmitters if key not in valid_keys]
         if not stale_keys:

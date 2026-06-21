@@ -26,15 +26,15 @@ The integration is intentionally local-first. It uses Home Assistant's native ZH
 
 ## Current State
 
-IR Learning Hub `v0.3.0` is a functional Home Assistant custom integration for the confirmed TS1201 / MOES UFO-R11 ZHA path.
+IR Learning Hub `v0.3.3` is a functional Home Assistant custom integration for the confirmed TS1201 / MOES UFO-R11 ZHA path.
 
 Release metadata:
 
 ```json
-{ "version": "0.3.0" }
+{ "version": "0.3.3" }
 ```
 
-Current release tag: `v0.3.0`.
+Current release tag: `v0.3.3`.
 
 The implemented flow covers the full command lifecycle:
 
@@ -186,7 +186,7 @@ Add this repository as a HACS custom repository with category `Integration`:
 https://github.com/slawa19/IR-Learning-Hub
 ```
 
-Install release `v0.3.0` or newer, then restart Home Assistant.
+Install release `v0.3.3` or newer, then restart Home Assistant.
 
 ### Lovelace Resource
 
@@ -197,9 +197,9 @@ url: /ir_learning_hub/ir-learning-hub-card.js
 type: module
 ```
 
-After updating the integration, restart Home Assistant. The card script is served without long-lived cache headers, so the browser should pick up the new version without changing the resource URL.
+After updating the integration, restart Home Assistant. The integration now auto-syncs the Lovelace card resource URL with a version query string, so normal upgrades do not require manually editing the resource URL.
 
-When updating a live system to `0.3.0`, a one-time migration reshapes the old
+When updating a live system to `0.3.0` or newer, a one-time migration reshapes the old
 one-entry-per-transmitter setup into a single hub entry with transmitter
 subentries. Learned commands are preserved (the registry store is untouched; the
 migration only changes config-entry shape). Verify after restart that:

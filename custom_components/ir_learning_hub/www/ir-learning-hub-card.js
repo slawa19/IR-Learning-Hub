@@ -1,4 +1,4 @@
-const IR_LEARNING_HUB_CARD_VERSION = "0.3.0";
+const IR_LEARNING_HUB_CARD_VERSION = "0.3.3";
 
 class IRLearningHubCard extends HTMLElement {
   constructor() {
@@ -25,6 +25,7 @@ class IRLearningHubCard extends HTMLElement {
     this._msg = "";
     this._err = "";
     this._lastStatus = undefined; // last status-entity state we rendered
+    this._sendFeedbackTimers = new WeakMap();
   }
 
   setConfig(config) { this._config = config || {}; this._render(); }
@@ -50,7 +51,7 @@ class IRLearningHubCard extends HTMLElement {
     }
     if (status !== this._lastStatus) {
       this._lastStatus = status;
-      this._render();
+      this._updateStatusIndicator(status);
     }
   }
 
@@ -60,6 +61,25 @@ class IRLearningHubCard extends HTMLElement {
     this._wizardSeq++;
     clearInterval(this._countdownTimer);
     this._countdownTimer = null;
+  }
+
+  _statusDotClass(state) {
+    return {
+      idle: "dot-idle",
+      learning: "dot-busy",
+      sending: "dot-busy",
+      code_received: "dot-ok",
+      error: "dot-err",
+    }[state] || "dot-idle";
+  }
+
+  _updateStatusIndicator(state) {
+    const dot = this.shadowRoot?.querySelector("[data-status-dot]");
+    if (!dot) return;
+    const label = `${this._t("status")}: ${state || "idle"}`;
+    dot.className = `status-dot ${this._statusDotClass(state || "idle")}`;
+    dot.title = label;
+    dot.setAttribute("aria-label", label);
   }
 
   _x(v) {
@@ -324,14 +344,31 @@ class IRLearningHubCard extends HTMLElement {
   // ── Send ──────────────────────────────────────────────────────────────────
 
   async _send(cmdId) {
+    let button = null;
+    if (arguments.length > 1) button = arguments[1];
     const cmd = this._cmds()[cmdId];
     if (cmd?.verified === false && !confirm(this._t("confirmUnverified", { name: cmd.name || cmdId }))) return;
-    await this._run(async () => {
+    try {
       await this._call("send_command", {
         location_id: this._selLoc, ir_device_id: this._selDev, command_id: cmdId,
       });
-      this._msg = this._t("sent");
-    });
+      this._flashCommandSent(button);
+    } catch (e) {
+      this._err = this._errText(e);
+      this._render();
+    }
+  }
+
+  _flashCommandSent(button) {
+    if (!button) return;
+    const previous = this._sendFeedbackTimers.get(button);
+    if (previous) clearTimeout(previous);
+    button.classList.add("is-sent");
+    const timer = setTimeout(() => {
+      button.classList.remove("is-sent");
+      this._sendFeedbackTimers.delete(button);
+    }, 700);
+    this._sendFeedbackTimers.set(button, timer);
   }
 
   // ── Render: sidebar ───────────────────────────────────────────────────────
@@ -570,13 +607,15 @@ class IRLearningHubCard extends HTMLElement {
             return `<div class="cmd-card editing">${this._renameInput()}</div>`;
           const unv = cmd.verified === false;
           const menuOpen = this._menuOpen("cmd", this._selLoc, this._selDev, id);
-          const icon = cmd.icon
-            ? `<ha-icon class="cmd-icon" icon="${this._x(cmd.icon)}"></ha-icon>`
-            : "";
+          const baseIcon = cmd.icon || "mdi:circle-medium";
           return `
             <div class="cmd-card${unv ? " unv" : ""}${menuOpen ? " menu-open" : ""}">
               <button class="cmd-send" data-send="${this._x(id)}" title="${this._x(this._t("send"))}">
-                ${icon}<span class="cmd-name">${this._x(cmd.name || id)}</span>
+                <span class="cmd-icon-stack${cmd.icon ? "" : " no-icon"}" aria-hidden="true">
+                  <ha-icon class="cmd-icon cmd-icon-base" icon="${this._x(baseIcon)}"></ha-icon>
+                  <ha-icon class="cmd-icon cmd-icon-sent" icon="mdi:access-point"></ha-icon>
+                </span>
+                <span class="cmd-name">${this._x(cmd.name || id)}</span>
               </button>
               <button class="kebab on-tile" data-menu="cmd" data-loc="${this._x(this._selLoc)}" data-dev="${this._x(this._selDev)}" data-cmd="${this._x(id)}" title="${this._x(this._t("actions"))}" aria-label="${this._x(this._t("actions"))}">
                 <ha-icon icon="mdi:dots-vertical"></ha-icon>
@@ -980,7 +1019,7 @@ class IRLearningHubCard extends HTMLElement {
 
     const statusEntity = this._config.status_entity || "sensor.ir_learning_hub_status";
     const state = this._hass?.states?.[statusEntity]?.state || "idle";
-    const dotClass = { idle: "dot-idle", learning: "dot-busy", sending: "dot-busy", code_received: "dot-ok", error: "dot-err" }[state] || "dot-idle";
+    const dotClass = this._statusDotClass(state);
 
     this.shadowRoot.innerHTML = `
       <style>${STYLES}</style>
@@ -988,7 +1027,7 @@ class IRLearningHubCard extends HTMLElement {
         <div class="header">
           <img class="brand-icon" src="/ir_learning_hub/icon.png" alt="" />
           <span class="title">${this._x(this._config.title || "IR Learning Hub")}</span>
-          <span class="status-dot ${dotClass}" title="${this._x(this._t("status"))}: ${this._x(state)}" aria-label="${this._x(this._t("status"))}: ${this._x(state)}" role="status"></span>
+          <span class="status-dot ${dotClass}" data-status-dot title="${this._x(this._t("status"))}: ${this._x(state)}" aria-label="${this._x(this._t("status"))}: ${this._x(state)}" role="status"></span>
         </div>
         <div class="body">
           <div class="sidebar">${this._renderSidebar()}</div>
@@ -1041,7 +1080,10 @@ class IRLearningHubCard extends HTMLElement {
     );
 
     root.querySelectorAll("[data-send]").forEach(el =>
-      el.addEventListener("click", () => this._send(el.dataset.send))
+      el.addEventListener("click", (event) => {
+        const button = event.currentTarget?.closest(".cmd-send");
+        this._send(el.dataset.send, button);
+      })
     );
 
     root.querySelectorAll("[data-ff]").forEach(el =>
@@ -1573,7 +1615,24 @@ const STYLES = `
   }
   .cmd-send:hover { background: var(--primary-color); color: var(--text-primary-color); }
   .cmd-card.unv .cmd-send { color: var(--warning-color, orange); }
-  .cmd-icon { --mdc-icon-size: 18px; flex-shrink: 0; }
+  .cmd-icon-stack {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+  .cmd-icon { --mdc-icon-size: 18px; }
+  .cmd-icon-base,
+  .cmd-icon-sent {
+    position: absolute;
+    inset: 0;
+    transition: opacity 0.15s ease;
+  }
+  .cmd-icon-base { opacity: 1; }
+  .cmd-icon-sent { opacity: 0; }
+  .cmd-icon-stack.no-icon .cmd-icon-base { opacity: 0; }
+  .cmd-send.is-sent .cmd-icon-base { opacity: 0; }
+  .cmd-send.is-sent .cmd-icon-sent { opacity: 1; }
   .cmd-name { overflow: hidden; text-overflow: ellipsis; }
 
   /* Kebab overflow trigger (commands, devices, locations) */

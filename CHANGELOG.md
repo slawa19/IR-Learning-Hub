@@ -8,6 +8,34 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.3.3 - 2026-06-21
+
+### Fixed
+
+- The embedded Lovelace card now uses the standard Home Assistant pattern again: a single module resource whose URL is auto-synced with a version query string, so upgrades do not require manual resource edits and do not depend on custom loaders.
+- The card resource auto-`?v=` sync now runs after Home Assistant startup and no longer depends on a private Lovelace resource-mode attribute, making post-restart resource updates reliable on live installs.
+
+## 0.3.2 - 2026-06-21
+
+### Fixed
+
+- `media_player.async_mute_volume` now treats a lone `mute` command as a toggle, so both mute and unmute service calls succeed on toggle-only devices instead of raising a Home Assistant 500.
+- Hub setup now self-heals orphaned virtual consumer devices left behind in the device registry when the backing store device no longer exists.
+- The Lovelace card no longer rebuilds its full shadow DOM or flickers on command press; stateless command buttons now show local fading send feedback instead of a global sending/sent banner.
+
+### Changed
+
+- IR send debug logging now explicitly reports dispatch to ZHA without implying confirmed delivery or physical IR emission.
+
+## 0.3.1 - 2026-06-21
+
+### Fixed
+
+- Prevented transmitter reconciliation from wiping the registry when setup runs before any transmitter subentries are available, and avoided redundant registry saves/reloads when nothing changed.
+- Self-healed migrated transmitter devices that still carried a stale entry-level association, normalized hub titles to `IR Learning Hub`, and made config-entry updates reload only when transmitter subentries actually changed.
+- Added config-entry device removal support for virtual consumer devices so removing a Home Assistant device also deletes the matching registry IR device.
+- Hardened transmitter resolution and logging around consumer entities so mismatched IEEE formatting and unavailable emitters fail clearly instead of disappearing silently.
+
 ## 0.3.0 - 2026-06-17
 
 ### Added

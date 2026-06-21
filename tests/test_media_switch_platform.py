@@ -224,6 +224,20 @@ def test_media_player_methods_send_expected_command_ids() -> None:
     assert entity.is_volume_muted is False
 
 
+def test_media_player_mute_only_device_treats_mute_as_toggle_for_both_calls() -> None:
+    spec = spec_from_commands({"mute"})
+    entity = IRLearningHubMediaPlayerEntity(FakeStore(), spec)
+    no_state_write(entity)
+    send = AsyncMock()
+    entity.async_send_feature_command = send
+
+    asyncio.run(entity.async_mute_volume(True))
+    asyncio.run(entity.async_mute_volume(False))
+
+    assert [call.args[0] for call in send.await_args_list] == ["mute", "mute"]
+    assert entity.is_volume_muted is False
+
+
 def test_media_player_update_spec_writes_new_features_and_sources_immediately() -> None:
     entity = IRLearningHubMediaPlayerEntity(FakeStore(), spec_from_commands({"play"}))
     snapshots = []

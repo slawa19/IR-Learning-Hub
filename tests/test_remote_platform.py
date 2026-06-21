@@ -29,15 +29,22 @@ from custom_components.ir_learning_hub.const import (
     DEFAULT_PROFILE,
     DOMAIN,
     HUB_ENTRY_DATA,
+    HUB_TITLE,
     TRANSMITTER_SUBENTRY_TYPE,
 )
 from custom_components.ir_learning_hub.errors import IRLearningHubError
+from custom_components.ir_learning_hub.device_profiles import get_profile
 from custom_components.ir_learning_hub import (
     PLATFORMS,
     REGISTERED_SERVICES,
+    FRONTEND_URL,
     _async_handle_entry_update,
+    _async_sync_frontend_resource,
+    _frontend_resource_url,
+    _reap_orphan_virtual_devices,
     _register_services,
     _async_migrate_legacy_entries_to_hub,
+    async_remove_config_entry_device,
     resolve_transmitter_ref,
     async_setup,
     async_setup_entry,
@@ -59,6 +66,7 @@ from custom_components.ir_learning_hub.remote import (
     async_send_registry_command,
 )
 from custom_components.ir_learning_hub.storage import IRRegistryStore
+from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE
 
 
 class FakeStore:
@@ -108,6 +116,7 @@ class FakeConfigEntries:
         self.reloads = []
         self._entries = []
         self.removed = []
+        self.updated = []
 
     async def async_forward_entry_setups(self, entry, platforms):
         self.forwarded.append((entry.entry_id, list(platforms)))
@@ -131,6 +140,9 @@ class FakeConfigEntries:
     def async_update_entry(self, entry, **changes):
         if "data" in changes:
             entry.data = changes["data"]
+        if "title" in changes:
+            entry.title = changes["title"]
+        self.updated.append((entry.entry_id, changes))
         return True
 
     def async_add_subentry(self, entry, subentry):
@@ -174,6 +186,9 @@ class FakeHass:
 
 
 class FakeSetupStore:
+    def __init__(self) -> None:
+        self.data = {"locations": {}}
+
     async def async_load(self):
         return None
 
@@ -191,6 +206,38 @@ class FakeRemovalStore:
 
     async def async_save(self) -> None:
         self.saved = True
+
+
+class FakeLovelaceResources:
+    def __init__(self, items=None) -> None:
+        self._items = list(items or [])
+        self.created = []
+        self.updated = []
+        self.deleted = []
+
+    async def async_get_info(self):
+        return {"resources": len(self._items)}
+
+    def async_items(self):
+        return list(self._items)
+
+    async def async_create_item(self, data):
+        created = {"id": f"new-{len(self._items)+1}", "type": data["res_type"], "url": data["url"]}
+        self._items.append(created)
+        self.created.append(created)
+        return created
+
+    async def async_update_item(self, item_id, updates):
+        for item in self._items:
+            if item["id"] == item_id:
+                item.update(updates)
+                self.updated.append((item_id, updates))
+                return item
+        raise KeyError(item_id)
+
+    async def async_delete_item(self, item_id):
+        self._items = [item for item in self._items if item["id"] != item_id]
+        self.deleted.append(item_id)
 
 
 def make_transmitter_subentry(
@@ -232,6 +279,23 @@ def test_emitter_forwards_zosung_command_to_adapter() -> None:
     adapter.async_send.assert_awaited_once_with(store.transmitter, "abc")
 
 
+def test_emitter_logs_dispatch_without_claiming_delivery(caplog) -> None:
+    store = FakeStore()
+    adapter = type("Adapter", (), {"async_send": AsyncMock()})()
+    emitter = IRLearningHubInfraredEmitter(
+        store,
+        adapter,
+        "0011",
+        {CONF_IEEE: "00:11"},
+    )
+
+    with caplog.at_level("DEBUG"):
+        asyncio.run(emitter.async_send_command(ZosungCommand("abc")))
+
+    assert "IR send dispatched to ZHA (delivery not confirmed)" in caplog.text
+    assert "00:11" in caplog.text
+
+
 def test_emitter_device_info_attaches_to_registered_transmitter_device() -> None:
     device_info = _transmitter_device_info("0011", {CONF_IEEE: "00:11"})
 
@@ -263,10 +327,26 @@ def test_infrared_setup_adds_one_emitter_per_transmitter_subentry() -> None:
 
 def test_transmitter_device_registration_owns_ts1201_metadata(monkeypatch) -> None:
     calls = []
+    updates = []
     registry = type(
         "DeviceRegistry",
         (),
-        {"async_get_or_create": lambda self, **kwargs: calls.append(kwargs)},
+        {
+            "async_get_or_create": lambda self, **kwargs: (
+                calls.append(kwargs)
+                or type(
+                    "DeviceEntry",
+                    (),
+                    {
+                        "id": "device-1",
+                        "config_entries_subentries": {"entry-1": {"sub-1"}},
+                    },
+                )()
+            ),
+            "async_update_device": lambda self, device_id, **kwargs: updates.append(
+                (device_id, kwargs)
+            ),
+        },
     )()
     entry = type(
         "Entry",
@@ -298,6 +378,54 @@ def test_transmitter_device_registration_owns_ts1201_metadata(monkeypatch) -> No
             "manufacturer": "Tuya",
             "model": "TS1201 / MOES UFO-R11",
         }
+    ]
+    assert updates == []
+
+
+def test_transmitter_device_registration_strips_stale_entry_level_association(
+    monkeypatch,
+) -> None:
+    updates = []
+    registry = type(
+        "DeviceRegistry",
+        (),
+        {
+            "async_get_or_create": lambda self, **kwargs: type(
+                "DeviceEntry",
+                (),
+                {
+                    "id": "device-1",
+                    "config_entries_subentries": {"entry-1": {None, "sub-1"}},
+                },
+            )(),
+            "async_update_device": lambda self, device_id, **kwargs: updates.append(
+                (device_id, kwargs)
+            ),
+        },
+    )()
+    entry = type("Entry", (), {"entry_id": "entry-1"})()
+    subentry = type(
+        "Subentry",
+        (),
+        {"subentry_id": "sub-1", "data": {CONF_IEEE: "AA:BB:CC"}},
+    )()
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.dr.async_get",
+        lambda hass: registry,
+    )
+
+    _register_transmitter_device(object(), entry, subentry, "aa_bb_cc")
+
+    assert updates == [
+        (
+            "device-1",
+            {
+                "add_config_entry_id": "entry-1",
+                "add_config_subentry_id": "sub-1",
+                "remove_config_entry_id": "entry-1",
+                "remove_config_subentry_id": None,
+            },
+        )
     ]
 
 
@@ -498,17 +626,167 @@ def test_setup_entry_tracks_hub_platforms_and_transmitter_subentries(monkeypatch
     domain_data = hass.data[DOMAIN]
     assert hass.config_entries.forwarded == [("hub", PLATFORMS)]
     assert domain_data["store"].valid_keys == {"0011", "0022"}
+    assert domain_data["entry_subentry_ids"]["hub"] == {"0011", "0022"}
     assert registered == [("sub-1", "0011"), ("sub-2", "0022")]
     assert len(entry.update_listeners) == 1
 
 
-def test_entry_update_listener_reloads_hub_on_subentry_change() -> None:
+def test_setup_entry_reaps_orphan_virtual_devices(monkeypatch) -> None:
     hass = FakeHass()
     entry = FakeEntry("hub", data=HUB_ENTRY_DATA)
+    hass.config_entries._entries = [entry]
+    setup_store = FakeSetupStore()
+    setup_store.data = {
+        "locations": {
+            "living": {
+                "devices": {"kept": {"name": "Kept", "commands": {}}},
+            }
+        }
+    }
+    removed = []
+    registry = type(
+        "DeviceRegistry",
+        (),
+        {
+            "async_remove_device": lambda self, device_id: removed.append(device_id),
+        },
+    )()
+    devices = [
+        type("DeviceEntry", (), {"id": "dev-1", "identifiers": {(DOMAIN, "living__stale")}})(),
+        type("DeviceEntry", (), {"id": "dev-2", "identifiers": {(DOMAIN, "living__kept")}})(),
+        type("DeviceEntry", (), {"id": "dev-3", "identifiers": {(DOMAIN, "0011")}})(),
+    ]
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.IRRegistryStore",
+        lambda hass: setup_store,
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.ZHAAdapter",
+        lambda hass: object(),
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub._async_register_frontend",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub._register_services",
+        lambda hass: None,
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.dr.async_get",
+        lambda hass: registry,
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.dr.async_entries_for_config_entry",
+        lambda registry, entry_id: devices,
+    )
+
+    assert asyncio.run(async_setup_entry(hass, entry)) is True
+
+    assert removed == ["dev-1"]
+
+
+def test_sync_frontend_resource_creates_cache_busted_module_url(tmp_path) -> None:
+    card_path = tmp_path / "ir-learning-hub-card.js"
+    card_path.write_text("// card", encoding="utf-8")
+    resources = FakeLovelaceResources()
+    hass = type(
+        "Hass",
+        (),
+        {"data": {LOVELACE_DATA: type("LovelaceData", (), {"resource_mode": MODE_STORAGE, "resources": resources})()}},
+    )()
+
+    asyncio.run(_async_sync_frontend_resource(hass, card_path))
+
+    assert len(resources.created) == 1
+    assert resources.created[0]["type"] == "module"
+    assert resources.created[0]["url"] == _frontend_resource_url(card_path)
+
+
+def test_sync_frontend_resource_updates_existing_url_and_removes_duplicates(tmp_path) -> None:
+    card_path = tmp_path / "ir-learning-hub-card.js"
+    card_path.write_text("// card", encoding="utf-8")
+    resources = FakeLovelaceResources(
+        [
+            {"id": "1", "type": "module", "url": FRONTEND_URL},
+            {"id": "2", "type": "module", "url": f"{FRONTEND_URL}?v=old"},
+            {"id": "3", "type": "module", "url": "/other.js"},
+        ]
+    )
+    hass = type(
+        "Hass",
+        (),
+        {"data": {LOVELACE_DATA: type("LovelaceData", (), {"resource_mode": MODE_STORAGE, "resources": resources})()}},
+    )()
+
+    asyncio.run(_async_sync_frontend_resource(hass, card_path))
+
+    assert resources.updated == [("1", {"url": _frontend_resource_url(card_path)})]
+    assert resources.deleted == ["2"]
+
+
+def test_entry_update_listener_reloads_hub_only_on_subentry_change() -> None:
+    hass = FakeHass({"entry_subentry_ids": {"hub": {"0011"}}})
+    entry = FakeEntry(
+        "hub",
+        data=HUB_ENTRY_DATA,
+        subentries=[make_transmitter_subentry("00:11", subentry_id="sub-1")],
+    )
 
     asyncio.run(_async_handle_entry_update(hass, entry))
 
+    assert hass.config_entries.reloads == []
+
+    entry.subentries = MappingProxyType(
+        dict(entry.subentries)
+        | {"sub-2": make_transmitter_subentry("00:22", subentry_id="sub-2")}
+    )
+    asyncio.run(_async_handle_entry_update(hass, entry))
+
     assert hass.config_entries.reloads == ["hub"]
+    assert hass.data[DOMAIN]["entry_subentry_ids"]["hub"] == {"0011", "0022"}
+
+
+def test_reap_orphan_virtual_devices_is_idempotent(monkeypatch) -> None:
+    removed = []
+    devices = [
+        type("DeviceEntry", (), {"id": "dev-1", "identifiers": {(DOMAIN, "living__stale")}})(),
+        type("DeviceEntry", (), {"id": "dev-2", "identifiers": {(DOMAIN, "living__kept")}})(),
+    ]
+
+    def remove_device(device_id):
+        removed.append(device_id)
+        devices[:] = [device for device in devices if device.id != device_id]
+
+    registry = type(
+        "DeviceRegistry",
+        (),
+        {"async_remove_device": lambda self, device_id: remove_device(device_id)},
+    )()
+    store = type(
+        "Store",
+        (),
+        {
+            "data": {
+                "locations": {
+                    "living": {"devices": {"kept": {"name": "Kept", "commands": {}}}}
+                }
+            }
+        },
+    )()
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.dr.async_get",
+        lambda hass: registry,
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.dr.async_entries_for_config_entry",
+        lambda registry, entry_id: devices,
+    )
+
+    _reap_orphan_virtual_devices(object(), FakeEntry("hub"), store)
+    _reap_orphan_virtual_devices(object(), FakeEntry("hub"), store)
+
+    assert removed == ["dev-1"]
 
 
 def test_resolve_transmitter_ref_accepts_key_ieee_and_entity_id(monkeypatch) -> None:
@@ -569,6 +847,7 @@ def test_async_setup_migrates_single_legacy_entry_to_hub_subentry() -> None:
     assert asyncio.run(async_setup(hass, {})) is True
 
     assert entry.data == HUB_ENTRY_DATA
+    assert entry.title == HUB_TITLE
     subentries = entry.get_subentries_of_type(TRANSMITTER_SUBENTRY_TYPE)
     assert len(subentries) == 1
     assert subentries[0].unique_id == "0011"
@@ -605,6 +884,7 @@ def test_legacy_migration_merges_multiple_entries_into_one_hub() -> None:
     asyncio.run(_async_migrate_legacy_entries_to_hub(hass))
 
     assert hub.data == HUB_ENTRY_DATA
+    assert hub.title == HUB_TITLE
     assert {subentry.unique_id for subentry in hub.get_subentries_of_type(TRANSMITTER_SUBENTRY_TYPE)} == {
         "0011",
         "0022",
@@ -632,6 +912,64 @@ def test_store_reconcile_prunes_orphans_and_list_commands_shows_valid_transmitte
         {"key": "0011", "ieee": "00:11", "name": "Living", "enabled": True},
         {"key": "0022", "ieee": "00:22", "name": "Bedroom", "enabled": False},
     ]
+
+
+def test_store_reconcile_skips_empty_valid_key_set() -> None:
+    store = IRRegistryStore.__new__(IRRegistryStore)
+    store.data = {
+        "transmitters": {"0011": {"ieee": "00:11", "enabled": True}},
+        "locations": {},
+    }
+    store.async_save = AsyncMock()
+
+    asyncio.run(store.async_reconcile_transmitters(set()))
+
+    assert set(store.data["transmitters"]) == {"0011"}
+    store.async_save.assert_not_awaited()
+
+
+def test_store_upsert_transmitter_skips_save_when_unchanged() -> None:
+    profile = get_profile(DEFAULT_PROFILE)
+    store = IRRegistryStore.__new__(IRRegistryStore)
+    store.data = {
+        "transmitters": {
+            "0011": {
+                "ieee": "00:11",
+                "name": "IR transmitter 00:11",
+                "manufacturer": None,
+                "model": None,
+                "quirk_class": None,
+                "profile": DEFAULT_PROFILE,
+                "config": {
+                    "endpoint_id": DEFAULT_ENDPOINT_ID,
+                    "ir_control_cluster": DEFAULT_CLUSTER_ID,
+                    "ir_transmit_cluster": profile["ir_transmit_cluster"],
+                    "learn_timeout": DEFAULT_LEARN_TIMEOUT,
+                    "learn_reassert_interval": DEFAULT_LEARN_REASSERT_INTERVAL,
+                },
+                "enabled": True,
+                "needs_confirmation": False,
+            }
+        },
+        "locations": {},
+    }
+    store.async_save = AsyncMock()
+
+    transmitter_id = asyncio.run(
+        store.async_upsert_transmitter_from_entry(
+            {
+                CONF_IEEE: "00:11",
+                CONF_PROFILE: DEFAULT_PROFILE,
+                CONF_ENDPOINT_ID: DEFAULT_ENDPOINT_ID,
+                CONF_CLUSTER_ID: DEFAULT_CLUSTER_ID,
+                CONF_LEARN_TIMEOUT: DEFAULT_LEARN_TIMEOUT,
+                CONF_LEARN_REASSERT_INTERVAL: DEFAULT_LEARN_REASSERT_INTERVAL,
+            }
+        )
+    )
+
+    assert transmitter_id == "0011"
+    store.async_save.assert_not_awaited()
 
 
 def test_store_update_device_rejects_unknown_transmitter_id() -> None:
@@ -763,6 +1101,62 @@ def test_update_device_service_can_clear_transmitter_id() -> None:
         preferred_domain=None,
         transmitter_id="",
     )
+
+
+def test_remove_config_entry_device_deletes_virtual_registry_device() -> None:
+    delete_device = AsyncMock()
+    hass = FakeHass({"store": type("Store", (), {"delete_device": delete_device})()})
+    device_entry = type(
+        "DeviceEntry",
+        (),
+        {"identifiers": {(DOMAIN, "living__tv")}},
+    )()
+
+    result = asyncio.run(async_remove_config_entry_device(hass, FakeEntry("hub"), device_entry))
+
+    assert result is True
+    delete_device.assert_awaited_once_with("living", "tv", confirm=True)
+
+
+def test_remove_config_entry_device_refuses_emitter_device() -> None:
+    hass = FakeHass({"store": object()})
+    device_entry = type(
+        "DeviceEntry",
+        (),
+        {"identifiers": {(DOMAIN, "0011")}},
+    )()
+
+    result = asyncio.run(async_remove_config_entry_device(hass, FakeEntry("hub"), device_entry))
+
+    assert result is False
+
+
+def test_remove_config_entry_device_ignores_missing_virtual_registry_device() -> None:
+    hass = FakeHass(
+        {
+            "store": type(
+                "Store",
+                (),
+                {
+                    "delete_device": AsyncMock(
+                        side_effect=IRLearningHubError(
+                            "command_not_found",
+                            "IR device tv was not found",
+                        )
+                    )
+                },
+            )()
+        }
+    )
+    device_entry = type(
+        "DeviceEntry",
+        (),
+        {"identifiers": {(DOMAIN, "living__tv")}},
+    )()
+
+    result = asyncio.run(async_remove_config_entry_device(hass, FakeEntry("hub"), device_entry))
+
+    assert result is True
 
 
 def test_remote_manager_coalesces_trailing_edge_reconcile(monkeypatch) -> None:

@@ -27,6 +27,7 @@ from .const import (
     DEFAULT_PROFILE,
     DOMAIN,
     HUB_ENTRY_DATA,
+    HUB_TITLE,
     TRANSMITTER_SUBENTRY_TYPE,
 )
 from .device_profiles import get_profile
@@ -38,9 +39,6 @@ MANUAL_SETUP_LABELS = {
     "ru": "Ручная настройка",
     "uk": "Ручне налаштування",
 }
-HUB_TITLE = "IR Learning Hub"
-
-
 class _TransmitterFlowMixin:
     """Shared transmitter discovery/manual helpers."""
 
