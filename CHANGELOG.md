@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.3.4 - 2026-06-21
+
+### Fixed
+
+- Re-released the Lovelace resource sync fix with the correct tagged version so HACS installs the patched files instead of the older 0.3.0 build.
+
 ## 0.3.3 - 2026-06-21
 
 ### Fixed
