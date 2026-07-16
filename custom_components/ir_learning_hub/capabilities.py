@@ -150,7 +150,7 @@ def _infer_media_features(features: frozenset[str]) -> frozenset[str]:
         media_features.add("previous")
     if {"volume_up", "volume_down"} <= features:
         media_features.add("volume_step")
-    if "mute" in features or "mute_toggle" in features:
+    if {"mute", "unmute"} <= features or "mute_toggle" in features:
         media_features.add("mute")
     if "source" in features:
         media_features.add("source")

@@ -17,9 +17,9 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_IEEE, DOMAIN, TRANSMITTER_SUBENTRY_TYPE
+from .dispatcher import CommandContext, IRCommandDispatcher
 from .ir_command import command_send_payload
 from .storage import IRRegistryStore, normalize_ieee
-from .zha_adapter import ZHAAdapter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,15 +32,22 @@ async def async_setup_entry(
     """Set up IR Learning Hub infrared emitters for transmitter subentries."""
     domain_data = hass.data.get(DOMAIN, {})
     store: IRRegistryStore | None = domain_data.get("store")
-    adapter: ZHAAdapter | None = domain_data.get("adapter")
-    if store is None or adapter is None:
+    dispatcher: IRCommandDispatcher | None = domain_data.get("dispatcher")
+    if store is None or dispatcher is None:
         async_add_entities([])
         return
 
     for subentry in entry.get_subentries_of_type(TRANSMITTER_SUBENTRY_TYPE):
         transmitter_id = normalize_ieee(subentry.data[CONF_IEEE])
         async_add_entities(
-            [IRLearningHubInfraredEmitter(store, adapter, transmitter_id, dict(subentry.data))],
+            [
+                IRLearningHubInfraredEmitter(
+                    store,
+                    dispatcher,
+                    transmitter_id,
+                    dict(subentry.data),
+                )
+            ],
             config_subentry_id=subentry.subentry_id,
         )
 
@@ -56,13 +63,13 @@ class IRLearningHubInfraredEmitter(InfraredEmitterEntity):
     def __init__(
         self,
         store: IRRegistryStore,
-        adapter: ZHAAdapter,
+        dispatcher: IRCommandDispatcher,
         transmitter_id: str,
         entry_data: dict[str, Any],
     ) -> None:
         """Initialize the emitter."""
         self._store = store
-        self._adapter = adapter
+        self._dispatcher = dispatcher
         self._transmitter_id = transmitter_id
         self._entry_data = entry_data
         self._attr_unique_id = transmitter_id
@@ -76,7 +83,19 @@ class IRLearningHubInfraredEmitter(InfraredEmitterEntity):
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
 
-        await self._adapter.async_send(transmitter, code)
+        await self._dispatcher.async_send(
+            self._transmitter_id,
+            transmitter,
+            code,
+            context=CommandContext(
+                request_id=getattr(command, "request_id", None) or _new_request_id(),
+                transmitter_id=self._transmitter_id,
+                location_id=getattr(command, "location_id", None),
+                ir_device_id=getattr(command, "ir_device_id", None),
+                command_id=getattr(command, "command_id", None),
+                source="entity",
+            ),
+        )
         _LOGGER.debug(
             "IR send dispatched to ZHA (delivery not confirmed): transmitter=%s code_len=%s",
             transmitter.get("ieee"),
@@ -90,3 +109,9 @@ def _transmitter_device_info(
 ) -> DeviceInfo:
     """Return device registry info for the IR Learning Hub emitter."""
     return DeviceInfo(identifiers={(DOMAIN, transmitter_id)})
+
+
+def _new_request_id() -> str:
+    from uuid import uuid4
+
+    return uuid4().hex

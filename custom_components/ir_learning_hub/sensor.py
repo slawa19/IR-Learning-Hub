@@ -10,9 +10,16 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     DOMAIN,
     STATUS_CODE_RECEIVED,
+    STATUS_DELIVERY_FAILED,
+    STATUS_DISPATCHED_UNCONFIRMED,
+    STATUS_DISPATCHER_STOPPED,
+    STATUS_DISPATCHING,
     STATUS_ERROR,
+    STATUS_EXPIRED,
     STATUS_IDLE,
     STATUS_LEARNING,
+    STATUS_QUEUE_FULL,
+    STATUS_QUEUED,
     STATUS_SENDING,
 )
 
@@ -41,6 +48,13 @@ class IRLearningHubStatusSensor(SensorEntity):
         STATUS_LEARNING,
         STATUS_SENDING,
         STATUS_CODE_RECEIVED,
+        STATUS_QUEUED,
+        STATUS_DISPATCHING,
+        STATUS_DISPATCHED_UNCONFIRMED,
+        STATUS_DELIVERY_FAILED,
+        STATUS_EXPIRED,
+        STATUS_QUEUE_FULL,
+        STATUS_DISPATCHER_STOPPED,
         STATUS_ERROR,
     ]
     _attr_icon = "mdi:remote"

@@ -17,6 +17,7 @@ from .const import (
 )
 from .device_profiles import get_profile
 from .errors import IRLearningHubError
+from .zha_compat import find_zha_cluster, get_zha_device_proxy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,14 +67,6 @@ class ZHAAdapter:
 
     async def async_read_last_code(self, transmitter: dict[str, Any]) -> str:
         """Read last learned IR code from ZHA attribute 0."""
-        try:
-            from homeassistant.components.zha.helpers import async_get_zha_device_proxy
-        except ImportError as err:
-            raise IRLearningHubError(
-                ERROR_ZHA_UNAVAILABLE,
-                "ZHA helper async_get_zha_device_proxy is not available",
-            ) from err
-
         profile = get_profile(transmitter["profile"])
         ieee = transmitter["ieee"]
         endpoint_id = transmitter["config"]["endpoint_id"]
@@ -83,8 +76,7 @@ class ZHAAdapter:
 
         try:
             device_id = self._resolve_device_id(ieee)
-            # NOTE: Despite the name, this helper is synchronous in current HA.
-            zha_device_proxy = async_get_zha_device_proxy(self.hass, device_id)
+            zha_device_proxy = get_zha_device_proxy(self.hass, device_id)
         except IRLearningHubError:
             raise
         except Exception as err:
@@ -93,7 +85,7 @@ class ZHAAdapter:
                 f"ZHA device {ieee} was not found",
             ) from err
 
-        cluster = self._get_cluster_from_proxy(
+        cluster = find_zha_cluster(
             zha_device_proxy,
             endpoint_id,
             cluster_id,
@@ -117,42 +109,6 @@ class ZHAAdapter:
         if code is None:
             return ""
         return str(code)
-
-    def _get_cluster_from_proxy(
-        self,
-        zha_device_proxy: Any,
-        endpoint_id: int,
-        cluster_id: int,
-        ieee: str,
-    ) -> Any:
-        """Find a ZHA/zigpy cluster through wrapper and nested device objects."""
-        device = getattr(zha_device_proxy, "device", None)
-        candidates = []
-        seen_ids = set()
-        while device is not None and id(device) not in seen_ids:
-            seen_ids.add(id(device))
-            candidates.append(device)
-            device = getattr(device, "device", None)
-
-        for candidate in candidates:
-            endpoint = getattr(candidate, "endpoints", {}).get(endpoint_id)
-            if endpoint is None:
-                continue
-
-            cluster = getattr(endpoint, "in_clusters", {}).get(cluster_id)
-            if cluster is None:
-                named_cluster = getattr(endpoint, "zosung_ircontrol", None)
-                candidate_cluster_id = getattr(named_cluster, "cluster_id", None)
-                if candidate_cluster_id == cluster_id:
-                    cluster = named_cluster
-            if cluster is not None:
-                _LOGGER.debug("Using ZHA cluster from %s", type(candidate))
-                return cluster
-
-        raise IRLearningHubError(
-            ERROR_CLUSTER_NOT_FOUND,
-            f"Cluster {cluster_id} (0x{cluster_id:04X}) was not found on endpoint {endpoint_id} for {ieee}",
-        )
 
     async def _issue_cluster_command(
         self,

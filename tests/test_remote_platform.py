@@ -30,6 +30,8 @@ from custom_components.ir_learning_hub.const import (
     DOMAIN,
     HUB_ENTRY_DATA,
     HUB_TITLE,
+    SERVICE_SEND_COMMAND,
+    SERVICE_TEST_CODE,
     TRANSMITTER_SUBENTRY_TYPE,
 )
 from custom_components.ir_learning_hub.errors import IRLearningHubError
@@ -266,25 +268,28 @@ def make_transmitter_subentry(
 
 def test_emitter_forwards_zosung_command_to_adapter() -> None:
     store = FakeStore()
-    adapter = type("Adapter", (), {"async_send": AsyncMock()})()
+    dispatcher = type("Dispatcher", (), {"async_send": AsyncMock()})()
     emitter = IRLearningHubInfraredEmitter(
         store,
-        adapter,
+        dispatcher,
         "0011",
         {CONF_IEEE: "00:11"},
     )
 
     asyncio.run(emitter.async_send_command(ZosungCommand("abc")))
 
-    adapter.async_send.assert_awaited_once_with(store.transmitter, "abc")
+    dispatcher.async_send.assert_awaited_once()
+    args = dispatcher.async_send.await_args.args
+    assert args[:3] == ("0011", store.transmitter, "abc")
+    assert dispatcher.async_send.await_args.kwargs["context"].source == "entity"
 
 
 def test_emitter_logs_dispatch_without_claiming_delivery(caplog) -> None:
     store = FakeStore()
-    adapter = type("Adapter", (), {"async_send": AsyncMock()})()
+    dispatcher = type("Dispatcher", (), {"async_send": AsyncMock()})()
     emitter = IRLearningHubInfraredEmitter(
         store,
-        adapter,
+        dispatcher,
         "0011",
         {CONF_IEEE: "00:11"},
     )
@@ -304,7 +309,7 @@ def test_emitter_device_info_attaches_to_registered_transmitter_device() -> None
 
 def test_infrared_setup_adds_one_emitter_per_transmitter_subentry() -> None:
     store = FakeStore()
-    adapter = object()
+    dispatcher = object()
     entry = FakeEntry(
         "hub",
         data=HUB_ENTRY_DATA,
@@ -313,7 +318,7 @@ def test_infrared_setup_adds_one_emitter_per_transmitter_subentry() -> None:
             make_transmitter_subentry("00:22", subentry_id="sub-2"),
         ],
     )
-    hass = FakeHass({"store": store, "adapter": adapter})
+    hass = FakeHass({"store": store, "dispatcher": dispatcher})
     added = []
 
     def async_add_entities(entities, update_before_add=False, *, config_subentry_id=None):
@@ -626,6 +631,7 @@ def test_setup_entry_tracks_hub_platforms_and_transmitter_subentries(monkeypatch
     domain_data = hass.data[DOMAIN]
     assert hass.config_entries.forwarded == [("hub", PLATFORMS)]
     assert domain_data["store"].valid_keys == {"0011", "0022"}
+    assert "dispatcher" in domain_data
     assert domain_data["entry_subentry_ids"]["hub"] == {"0011", "0022"}
     assert registered == [("sub-1", "0011"), ("sub-2", "0022")]
     assert len(entry.update_listeners) == 1
@@ -1069,6 +1075,7 @@ def test_update_device_service_can_clear_transmitter_id() -> None:
         {
             "store": store,
             "adapter": object(),
+            "dispatcher": type("Dispatcher", (), {"async_send": AsyncMock()})(),
             "status": type("Status", (), {"async_set": lambda self, *args, **kwargs: None})(),
             "learn_tasks": {},
         }
@@ -1101,6 +1108,85 @@ def test_update_device_service_can_clear_transmitter_id() -> None:
         preferred_domain=None,
         transmitter_id="",
     )
+
+
+def _dispatch_response() -> dict[str, object]:
+    return {
+        "status": "dispatched_unconfirmed",
+        "delivery_confirmed": False,
+        "request_id": "req-1",
+        "transmitter_id": "0011",
+        "queue_wait_ms": 0,
+        "command_age_ms": 1,
+        "queue_depth": 1,
+    }
+
+
+def test_test_code_service_returns_dispatcher_response() -> None:
+    store = FakeStore()
+    result = type("Result", (), {"as_response": lambda self: _dispatch_response()})()
+    dispatcher = type("Dispatcher", (), {"async_send": AsyncMock(return_value=result)})()
+    hass = FakeHass(
+        {
+            "store": store,
+            "adapter": object(),
+            "dispatcher": dispatcher,
+            "status": type("Status", (), {"async_set": lambda self, *args, **kwargs: None})(),
+            "learn_tasks": {},
+        }
+    )
+
+    _register_services(hass)
+    callback = hass.services.registered[(DOMAIN, SERVICE_TEST_CODE)]
+
+    response = asyncio.run(callback(type("Call", (), {"data": {"code": "abc"}})()))
+
+    assert response == _dispatch_response()
+    assert response["status"] != "sent"
+    dispatcher.async_send.assert_awaited_once()
+    assert dispatcher.async_send.await_args.args[:3] == ("0011", store.transmitter, "abc")
+    context = dispatcher.async_send.await_args.kwargs["context"]
+    assert context.source == "service"
+    assert context.transmitter_id == "0011"
+
+
+def test_send_command_service_returns_dispatcher_response_with_metadata() -> None:
+    store = FakeStore()
+    result = type("Result", (), {"as_response": lambda self: _dispatch_response()})()
+    dispatcher = type("Dispatcher", (), {"async_send": AsyncMock(return_value=result)})()
+    hass = FakeHass(
+        {
+            "store": store,
+            "adapter": object(),
+            "dispatcher": dispatcher,
+            "status": type("Status", (), {"async_set": lambda self, *args, **kwargs: None})(),
+            "learn_tasks": {},
+        }
+    )
+
+    _register_services(hass)
+    callback = hass.services.registered[(DOMAIN, SERVICE_SEND_COMMAND)]
+    data = {
+        "location_id": "living",
+        "ir_device_id": "tv",
+        "command_id": "power",
+    }
+
+    response = asyncio.run(callback(type("Call", (), {"data": data})()))
+
+    assert response == _dispatch_response()
+    assert response["delivery_confirmed"] is False
+    dispatcher.async_send.assert_awaited_once()
+    assert dispatcher.async_send.await_args.args[:3] == (
+        "0011",
+        store.transmitter,
+        "code-power",
+    )
+    context = dispatcher.async_send.await_args.kwargs["context"]
+    assert context.source == "service"
+    assert context.location_id == "living"
+    assert context.ir_device_id == "tv"
+    assert context.command_id == "power"
 
 
 def test_remove_config_entry_device_deletes_virtual_registry_device() -> None:
@@ -1199,8 +1285,11 @@ def test_remote_manager_coalesces_trailing_edge_reconcile(monkeypatch) -> None:
 def test_async_unload_entry_unloads_all_platforms_and_tears_down_domain() -> None:
     task = type("Task", (), {"cancelled": False})()
     task.cancel = lambda: setattr(task, "cancelled", True)
+    dispatcher = type("Dispatcher", (), {"stopped": False})()
+    dispatcher.shutdown = lambda: setattr(dispatcher, "stopped", True)
     domain_data = {
         "learn_tasks": {"00:11": task},
+        "dispatcher": dispatcher,
     }
     hass = FakeHass(domain_data)
     entry = FakeEntry("hub", data=HUB_ENTRY_DATA)
@@ -1208,6 +1297,7 @@ def test_async_unload_entry_unloads_all_platforms_and_tears_down_domain() -> Non
     assert asyncio.run(async_unload_entry(hass, entry)) is True
 
     assert task.cancelled
+    assert dispatcher.stopped
     assert hass.config_entries.unloaded == [("hub", PLATFORMS)]
     assert hass.services.removed == [
         (DOMAIN, service) for service in REGISTERED_SERVICES

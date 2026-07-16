@@ -22,11 +22,17 @@ class ZosungCommand(InfraredCommand):
         command_format: str = ZOSUNG_FORMAT,
         modulation: int = DEFAULT_MODULATION,
         repeat_count: int = 0,
+        location_id: str | None = None,
+        ir_device_id: str | None = None,
+        command_id: str | None = None,
     ) -> None:
         """Initialize the command."""
         super().__init__(modulation=modulation, repeat_count=repeat_count)
         self.code = code
         self.format = command_format
+        self.location_id = location_id
+        self.ir_device_id = ir_device_id
+        self.command_id = command_id
 
     def get_raw_timings(self) -> list[int]:
         """Return raw timings.

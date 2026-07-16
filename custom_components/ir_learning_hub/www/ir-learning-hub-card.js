@@ -1,4 +1,4 @@
-const IR_LEARNING_HUB_CARD_VERSION = "0.3.4";
+const IR_LEARNING_HUB_CARD_VERSION = "0.4.0";
 
 class IRLearningHubCard extends HTMLElement {
   constructor() {
@@ -68,15 +68,40 @@ class IRLearningHubCard extends HTMLElement {
       idle: "dot-idle",
       learning: "dot-busy",
       sending: "dot-busy",
+      queued: "dot-busy",
+      dispatching: "dot-busy",
       code_received: "dot-ok",
+      dispatched_unconfirmed: "dot-ok",
+      delivery_failed: "dot-err",
+      expired: "dot-err",
+      queue_full: "dot-err",
+      dispatcher_stopped: "dot-err",
       error: "dot-err",
     }[state] || "dot-idle";
+  }
+
+  _statusLabel(state) {
+    const key = {
+      idle: "statusIdle",
+      learning: "statusLearning",
+      sending: "statusSending",
+      queued: "statusQueued",
+      dispatching: "statusDispatching",
+      code_received: "statusCodeReceived",
+      dispatched_unconfirmed: "statusDispatchedUnconfirmed",
+      delivery_failed: "statusDeliveryFailed",
+      expired: "statusExpired",
+      queue_full: "statusQueueFull",
+      dispatcher_stopped: "statusDispatcherStopped",
+      error: "statusError",
+    }[state || "idle"];
+    return key ? this._t(key) : String(state || "idle");
   }
 
   _updateStatusIndicator(state) {
     const dot = this.shadowRoot?.querySelector("[data-status-dot]");
     if (!dot) return;
-    const label = `${this._t("status")}: ${state || "idle"}`;
+    const label = `${this._t("status")}: ${this._statusLabel(state)}`;
     dot.className = `status-dot ${this._statusDotClass(state || "idle")}`;
     dot.title = label;
     dot.setAttribute("aria-label", label);
@@ -131,18 +156,20 @@ class IRLearningHubCard extends HTMLElement {
       ["rewind", this._t("featureRewind")],
       ["volume_up", this._t("featureVolumeUp")],
       ["volume_down", this._t("featureVolumeDown")],
-      ["mute", this._t("featureMute")],
-      ["unmute", this._t("featureUnmute")],
-      ["mute_toggle", this._t("featureMuteToggle")],
+      ["mute", this._t("featureMute"), this._t("featureMuteDesc")],
+      ["unmute", this._t("featureUnmute"), this._t("featureUnmuteDesc")],
+      ["mute_toggle", this._t("featureMuteToggle"), this._t("featureMuteToggleDesc")],
       ["source", this._t("featureSource")],
     ];
   }
 
   _featureSelect(value, attr) {
+    const selected = this._featureOptions().find(([v]) => v === (value || ""));
+    const description = selected?.[2] || this._t("featureLabel");
     return `
-      <select class="fi" ${attr}>
-        ${this._featureOptions().map(([v, label]) => `
-          <option value="${this._x(v)}"${v === (value || "") ? " selected" : ""}>${this._x(label)}</option>
+      <select class="fi" ${attr} title="${this._x(description)}" aria-label="${this._x(description)}">
+        ${this._featureOptions().map(([v, label, desc]) => `
+          <option value="${this._x(v)}"${v === (value || "") ? " selected" : ""}${desc ? ` title="${this._x(desc)}"` : ""}>${this._x(label)}</option>
         `).join("")}
       </select>`;
   }
@@ -1020,6 +1047,7 @@ class IRLearningHubCard extends HTMLElement {
     const statusEntity = this._config.status_entity || "sensor.ir_learning_hub_status";
     const state = this._hass?.states?.[statusEntity]?.state || "idle";
     const dotClass = this._statusDotClass(state);
+    const statusLabel = `${this._t("status")}: ${this._statusLabel(state)}`;
 
     this.shadowRoot.innerHTML = `
       <style>${STYLES}</style>
@@ -1027,7 +1055,7 @@ class IRLearningHubCard extends HTMLElement {
         <div class="header">
           <img class="brand-icon" src="/ir_learning_hub/icon.png" alt="" />
           <span class="title">${this._x(this._config.title || "IR Learning Hub")}</span>
-          <span class="status-dot ${dotClass}" data-status-dot title="${this._x(this._t("status"))}: ${this._x(state)}" aria-label="${this._x(this._t("status"))}: ${this._x(state)}" role="status"></span>
+          <span class="status-dot ${dotClass}" data-status-dot title="${this._x(statusLabel)}" aria-label="${this._x(statusLabel)}" role="status"></span>
         </div>
         <div class="body">
           <div class="sidebar">${this._renderSidebar()}</div>
@@ -1243,6 +1271,9 @@ const TRANSLATIONS = {
     featureMute: "Mute",
     featureUnmute: "Unmute",
     featureMuteToggle: "Mute toggle",
+    featureMuteDesc: "Discrete mute-on command.",
+    featureUnmuteDesc: "Discrete mute-off command.",
+    featureMuteToggleDesc: "Mute toggle command; final receiver state is assumed.",
     featureSource: "Source",
     transmitterAuto: "Automatic",
     transmitterLabel: "Transmitter",
@@ -1276,10 +1307,22 @@ const TRANSLATIONS = {
     selectDevice: "Select a device",
     send: "Send",
     sending: "Sending...",
-    sent: "Sent",
-    sentToDevice: "Sent to device",
+    sent: "Dispatched",
+    sentToDevice: "Dispatched to Zigbee. Physical IR delivery is not confirmed.",
     skip: "Skip",
     status: "Status",
+    statusIdle: "Idle",
+    statusLearning: "Learning",
+    statusSending: "Sending",
+    statusQueued: "Queued",
+    statusDispatching: "Dispatching",
+    statusCodeReceived: "Code received",
+    statusDispatchedUnconfirmed: "Dispatched, unconfirmed",
+    statusDeliveryFailed: "Delivery failed",
+    statusExpired: "Expired",
+    statusQueueFull: "Queue full",
+    statusDispatcherStopped: "Dispatcher stopped",
+    statusError: "Error",
     stepRecord: "Step 1 of 3 · Record",
     stepSave: "Step 3 of 3 · Save",
     stepTest: "Step 2 of 3 · Test",
@@ -1325,9 +1368,12 @@ const TRANSLATIONS = {
     featureRewind: "Перемотка назад",
     featureVolumeUp: "Громче",
     featureVolumeDown: "Тише",
-    featureMute: "Mute",
-    featureUnmute: "Unmute",
-    featureMuteToggle: "Mute toggle",
+    featureMute: "Заглушить",
+    featureUnmute: "Включить звук",
+    featureMuteToggle: "Переключить звук",
+    featureMuteDesc: "Дискретная команда включения mute.",
+    featureUnmuteDesc: "Дискретная команда выключения mute.",
+    featureMuteToggleDesc: "Команда-переключатель mute; итоговое состояние устройства предполагается.",
     featureSource: "Источник",
     transmitterAuto: "Автоматически",
     transmitterLabel: "Передатчик",
@@ -1361,10 +1407,22 @@ const TRANSLATIONS = {
     selectDevice: "Выберите устройство",
     send: "Отправить",
     sending: "Отправляю...",
-    sent: "Отправлено",
-    sentToDevice: "Отправлено на устройство",
+    sent: "Передано",
+    sentToDevice: "Передано в Zigbee. Физическая IR-доставка целевому устройству не подтверждается.",
     skip: "Пропустить",
     status: "Статус",
+    statusIdle: "Ожидание",
+    statusLearning: "Обучение",
+    statusSending: "Отправка",
+    statusQueued: "В очереди",
+    statusDispatching: "Передача",
+    statusCodeReceived: "Код получен",
+    statusDispatchedUnconfirmed: "Передано без подтверждения",
+    statusDeliveryFailed: "Ошибка передачи",
+    statusExpired: "Истекло",
+    statusQueueFull: "Очередь заполнена",
+    statusDispatcherStopped: "Dispatcher остановлен",
+    statusError: "Ошибка",
     stepRecord: "Шаг 1 из 3 · Запись",
     stepSave: "Шаг 3 из 3 · Сохранение",
     stepTest: "Шаг 2 из 3 · Проверка",
@@ -1410,9 +1468,12 @@ const TRANSLATIONS = {
     featureRewind: "Перемотування назад",
     featureVolumeUp: "Гучніше",
     featureVolumeDown: "Тихіше",
-    featureMute: "Mute",
-    featureUnmute: "Unmute",
-    featureMuteToggle: "Mute toggle",
+    featureMute: "Вимкнути звук",
+    featureUnmute: "Увімкнути звук",
+    featureMuteToggle: "Перемкнути звук",
+    featureMuteDesc: "Дискретна команда ввімкнення mute.",
+    featureUnmuteDesc: "Дискретна команда вимкнення mute.",
+    featureMuteToggleDesc: "Команда-перемикач mute; підсумковий стан пристрою припускається.",
     featureSource: "Джерело",
     transmitterAuto: "Автоматично",
     transmitterLabel: "Передавач",
@@ -1446,10 +1507,22 @@ const TRANSLATIONS = {
     selectDevice: "Виберіть пристрій",
     send: "Надіслати",
     sending: "Надсилаю...",
-    sent: "Надіслано",
-    sentToDevice: "Надіслано на пристрій",
+    sent: "Передано",
+    sentToDevice: "Передано в Zigbee. Фізична ІЧ-доставка цільовому пристрою не підтверджується.",
     skip: "Пропустити",
     status: "Статус",
+    statusIdle: "Очікування",
+    statusLearning: "Навчання",
+    statusSending: "Надсилання",
+    statusQueued: "У черзі",
+    statusDispatching: "Передача",
+    statusCodeReceived: "Код отримано",
+    statusDispatchedUnconfirmed: "Передано без підтвердження",
+    statusDeliveryFailed: "Помилка передачі",
+    statusExpired: "Прострочено",
+    statusQueueFull: "Чергу заповнено",
+    statusDispatcherStopped: "Dispatcher зупинено",
+    statusError: "Помилка",
     stepRecord: "Крок 1 з 3 · Запис",
     stepSave: "Крок 3 з 3 · Збереження",
     stepTest: "Крок 2 з 3 · Перевірка",

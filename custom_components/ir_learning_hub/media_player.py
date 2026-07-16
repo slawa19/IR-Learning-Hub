@@ -101,6 +101,10 @@ class IRLearningHubMediaPlayerEntity(
             spec.capabilities.source_names[command_id]
             for command_id in spec.capabilities.source_commands
         ] or None
+        if _uses_mute_toggle(spec):
+            self._attr_extra_state_attributes = {"mute_state_assumed": True}
+        elif hasattr(self, "_attr_extra_state_attributes"):
+            self._attr_extra_state_attributes = None
         if spec.capabilities.power_mode == "none" and self._attr_state == STATE_OFF:
             self._attr_state = STATE_IDLE
         super().update_spec(spec)
@@ -182,10 +186,11 @@ class IRLearningHubMediaPlayerEntity(
                 self._spec,
                 "unmute",
                 "mute_toggle",
-                "mute",
             )
         if command_id is None:
-            return
+            raise ServiceValidationError(
+                f"IR device {self._spec.device_identifier} has no supported command for unmute"
+            )
         await self.async_send_feature_command(command_id)
         self._attr_is_volume_muted = mute
         self.async_write_ha_state()
@@ -244,3 +249,10 @@ def _first_supported_or_none(spec: EntitySpec, *command_ids: str) -> str | None:
         if command_id in spec.feature_keys:
             return command_id
     return None
+
+
+def _uses_mute_toggle(spec: EntitySpec) -> bool:
+    """Return whether mute state is optimistic because only a toggle is known."""
+    return "mute_toggle" in spec.feature_keys and not {"mute", "unmute"} <= set(
+        spec.feature_keys
+    )

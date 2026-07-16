@@ -54,6 +54,13 @@
           "learning": "Обучение",
           "sending": "Отправка",
           "code_received": "Код получен",
+          "queued": "В очереди",
+          "dispatching": "Передача в Zigbee",
+          "dispatched_unconfirmed": "Передано без подтверждения",
+          "delivery_failed": "Ошибка передачи",
+          "expired": "Истекло",
+          "queue_full": "Очередь заполнена",
+          "dispatcher_stopped": "Dispatcher остановлен",
           "error": "Ошибка"
         },
         "state_attributes": {
@@ -63,7 +70,14 @@
           "last_command_id": { "name": "Последняя команда" },
           "last_error": { "name": "Последняя ошибка" },
           "last_error_message": { "name": "Текст последней ошибки" },
-          "last_updated": { "name": "Последнее обновление" }
+          "last_updated": { "name": "Последнее обновление" },
+          "last_request_id": { "name": "ID последнего запроса" },
+          "last_dispatch_status": { "name": "Последний статус передачи" },
+          "last_transmitter_id": { "name": "ID последнего передатчика" },
+          "last_queue_wait_ms": { "name": "Ожидание в очереди, мс" },
+          "last_command_age_ms": { "name": "Возраст команды, мс" },
+          "last_queue_depth": { "name": "Глубина очереди" },
+          "delivery_confirmed": { "name": "Доставка подтверждена" }
         }
       }
     }
@@ -411,10 +425,13 @@
   "exceptions": {
     "code_empty": { "message": "ИК-код пуст." },
     "code_generation_failed": { "message": "Не удалось сгенерировать ИК-код из заданных параметров протокола." },
+    "command_expired": { "message": "ИК-команда устарела до передачи." },
     "cluster_not_found": { "message": "Кластер управления ИК не найден на устройстве." },
     "command_not_found": { "message": "Запрошенная команда не найдена." },
+    "dispatcher_stopped": { "message": "Dispatcher ИК-команд был остановлен." },
     "learn_failed": { "message": "Не удалось запустить или завершить обучение ИК." },
     "learn_timeout": { "message": "Истекло время ожидания ИК-кода." },
+    "queue_full": { "message": "Очередь ИК-команд заполнена." },
     "send_failed": { "message": "Не удалось отправить ИК-код." },
     "storage_error": { "message": "Не удалось прочитать или записать реестр команд." },
     "transmitter_not_configured": { "message": "Ни один ИК-передатчик не настроен." },

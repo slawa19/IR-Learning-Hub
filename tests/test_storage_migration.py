@@ -13,9 +13,11 @@ if str(_PKG_DIR) not in sys.path:
 from storage_migration import (  # noqa: E402
     migrate_to_v3,
     migrate_to_v4,
+    migrate_to_v5,
     migrate_v1_to_v2,
     migrate_v2_to_v3,
     migrate_v3_to_v4,
+    migrate_v4_to_v5,
 )
 
 
@@ -200,6 +202,85 @@ class StorageMigrationTests(unittest.TestCase):
         devices = migrated["locations"]["room"]["devices"]
         self.assertIsNone(devices["amp"]["transmitter_id"])
         self.assertEqual(devices["tv"]["transmitter_id"], "known")
+
+    def test_v4_to_v5_reclassifies_generated_sony_sirc_mute_as_toggle(self) -> None:
+        migrated = migrate_v4_to_v5(
+            {
+                "version": 4,
+                "transmitters": {},
+                "locations": {
+                    "room": {
+                        "devices": {
+                            "amp": {
+                                "commands": {
+                                    "mute": {
+                                        "feature": "mute",
+                                        "source": {
+                                            "type": "protocol",
+                                            "protocol": "sony_sirc",
+                                            "params": {"command": 20},
+                                        },
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        )
+
+        command = migrated["locations"]["room"]["devices"]["amp"]["commands"]["mute"]
+        self.assertEqual(command["feature"], "mute_toggle")
+
+    def test_v4_to_v5_keeps_non_matching_mute_records(self) -> None:
+        data = {
+            "version": 4,
+            "transmitters": {},
+            "locations": {
+                "room": {
+                    "devices": {
+                        "amp": {
+                            "commands": {
+                                "learned": {"feature": "mute"},
+                                "denon": {
+                                    "feature": "mute",
+                                    "source": {
+                                        "type": "protocol",
+                                        "protocol": "denon",
+                                        "params": {"command": 20},
+                                    },
+                                },
+                                "sony_other": {
+                                    "feature": "mute",
+                                    "source": {
+                                        "type": "protocol",
+                                        "protocol": "sony_sirc",
+                                        "params": {"command": 21},
+                                    },
+                                },
+                                "fixed": {
+                                    "feature": "mute_toggle",
+                                    "source": {
+                                        "type": "protocol",
+                                        "protocol": "sony_sirc",
+                                        "params": {"command": 20},
+                                    },
+                                },
+                            }
+                        }
+                    }
+                }
+            },
+        }
+
+        migrated = migrate_to_v5(data)
+        commands = migrated["locations"]["room"]["devices"]["amp"]["commands"]
+
+        self.assertEqual(commands["learned"]["feature"], "mute")
+        self.assertEqual(commands["denon"]["feature"], "mute")
+        self.assertEqual(commands["sony_other"]["feature"], "mute")
+        self.assertEqual(commands["fixed"]["feature"], "mute_toggle")
+        self.assertEqual(migrated["version"], 5)
 
 
 if __name__ == "__main__":

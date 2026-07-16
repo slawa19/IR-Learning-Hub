@@ -8,6 +8,26 @@ The format is based on Keep a Changelog, and this project uses pre-release versi
 
 No unreleased changes yet.
 
+## 0.4.0 - 2026-07-16
+
+### Added
+
+- Added a per-transmitter IR command dispatcher with bounded backlog, TTL expiry,
+  request metadata, and explicit unconfirmed-dispatch status.
+- Added dispatcher status/error documentation and a follow-up spec for
+  cancellation and teardown semantics.
+
+### Changed
+
+- Services and the Lovelace card now describe successful sends as dispatched to
+  Zigbee without claiming confirmed physical IR delivery.
+- Normal send paths now go through the dispatcher, while private ZHA proxy access
+  is isolated in `zha_compat.py`.
+- Storage schema is now v5 for the narrow Sony SIRC `mute_toggle` reclassification.
+- Media-player mute capability now distinguishes discrete `mute`/`unmute` from
+  `mute_toggle`; mute-only devices no longer advertise unmute support or send
+  `mute` as an unmute fallback.
+
 ## 0.3.4 - 2026-06-21
 
 ### Fixed

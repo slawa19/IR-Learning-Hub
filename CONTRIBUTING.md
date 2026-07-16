@@ -41,6 +41,26 @@ For storage changes, verify migration behavior and ensure existing saved command
 
 For UI changes, verify both desktop and mobile layouts and ensure long base64 strings do not break the card layout.
 
+## Release Rules for HACS
+
+HACS detects this repository's released version from GitHub Releases, not from a
+local tag alone. When publishing a release:
+
+- update `custom_components/ir_learning_hub/manifest.json`;
+- update `IR_LEARNING_HUB_CARD_VERSION` in the bundled Lovelace card when the
+  frontend changed;
+- update `CHANGELOG.md`, README release examples, and `docs/INSTALLATION.md`;
+- commit the release metadata before tagging;
+- create and push tag `vX.Y.Z` on that exact commit;
+- verify the tag points at the release metadata commit, not an older commit;
+- create a GitHub Release from `vX.Y.Z` and leave it non-draft; use prerelease
+  only for builds HACS users should treat as prerelease;
+- verify GitHub latest release reports the expected `tag_name` and
+  `draft=false`.
+
+Do not call a version released for HACS until both the tag and the GitHub
+Release exist.
+
 ## Style Guidelines
 
 - Keep changes focused and small enough to review.

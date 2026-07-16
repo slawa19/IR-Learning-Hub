@@ -96,6 +96,7 @@ def no_state_write(entity) -> None:
         ({"next"}, MediaPlayerEntityFeature.NEXT_TRACK),
         ({"previous"}, MediaPlayerEntityFeature.PREVIOUS_TRACK),
         ({"volume_up", "volume_down"}, MediaPlayerEntityFeature.VOLUME_STEP),
+        ({"mute", "unmute"}, MediaPlayerEntityFeature.VOLUME_MUTE),
         ({"mute_toggle"}, MediaPlayerEntityFeature.VOLUME_MUTE),
         ({"source_cd"}, MediaPlayerEntityFeature.SELECT_SOURCE),
         (
@@ -119,6 +120,12 @@ def test_media_player_no_power_mode_does_not_advertise_turn_on_off() -> None:
 
     assert not media_player_features(spec) & MediaPlayerEntityFeature.TURN_ON
     assert not media_player_features(spec) & MediaPlayerEntityFeature.TURN_OFF
+
+
+def test_media_player_mute_only_does_not_advertise_volume_mute() -> None:
+    spec = spec_from_commands({"mute"})
+
+    assert not media_player_features(spec) & MediaPlayerEntityFeature.VOLUME_MUTE
 
 
 def test_source_reverse_mapping_uses_display_name() -> None:
@@ -224,8 +231,23 @@ def test_media_player_methods_send_expected_command_ids() -> None:
     assert entity.is_volume_muted is False
 
 
-def test_media_player_mute_only_device_treats_mute_as_toggle_for_both_calls() -> None:
+def test_media_player_mute_only_device_does_not_use_mute_as_unmute() -> None:
     spec = spec_from_commands({"mute"})
+    entity = IRLearningHubMediaPlayerEntity(FakeStore(), spec)
+    no_state_write(entity)
+    send = AsyncMock()
+    entity.async_send_feature_command = send
+
+    asyncio.run(entity.async_mute_volume(True))
+    with pytest.raises(ServiceValidationError, match="no supported command for unmute"):
+        asyncio.run(entity.async_mute_volume(False))
+
+    send.assert_awaited_once_with("mute")
+    assert entity.is_volume_muted is True
+
+
+def test_media_player_mute_toggle_only_sends_toggle_and_marks_assumed_state() -> None:
+    spec = spec_from_commands({"mute_toggle"})
     entity = IRLearningHubMediaPlayerEntity(FakeStore(), spec)
     no_state_write(entity)
     send = AsyncMock()
@@ -234,7 +256,11 @@ def test_media_player_mute_only_device_treats_mute_as_toggle_for_both_calls() ->
     asyncio.run(entity.async_mute_volume(True))
     asyncio.run(entity.async_mute_volume(False))
 
-    assert [call.args[0] for call in send.await_args_list] == ["mute", "mute"]
+    assert [call.args[0] for call in send.await_args_list] == [
+        "mute_toggle",
+        "mute_toggle",
+    ]
+    assert entity.extra_state_attributes == {"mute_state_assumed": True}
     assert entity.is_volume_muted is False
 
 

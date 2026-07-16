@@ -23,6 +23,13 @@ class HubStatus:
     last_error: str | None = None
     last_error_message: str | None = None
     last_updated: str | None = None
+    last_request_id: str | None = None
+    last_dispatch_status: str | None = None
+    last_transmitter_id: str | None = None
+    last_queue_wait_ms: int | None = None
+    last_command_age_ms: int | None = None
+    last_queue_depth: int | None = None
+    delivery_confirmed: bool | None = None
     _listeners: list[Callable[[], None]] = field(default_factory=list)
 
     @callback
@@ -48,6 +55,13 @@ class HubStatus:
         command_id: str | None = None,
         error: str | None = None,
         error_message: str | None = None,
+        request_id: str | None = None,
+        dispatch_status: str | None = None,
+        transmitter_id: str | None = None,
+        queue_wait_ms: int | None = None,
+        command_age_ms: int | None = None,
+        queue_depth: int | None = None,
+        delivery_confirmed: bool | None = None,
     ) -> None:
         """Update status and notify listeners."""
         self.state = state
@@ -58,6 +72,13 @@ class HubStatus:
         self.last_error = error
         self.last_error_message = error_message
         self.last_updated = dt_util.utcnow().isoformat()
+        self.last_request_id = request_id
+        self.last_dispatch_status = dispatch_status
+        self.last_transmitter_id = transmitter_id
+        self.last_queue_wait_ms = queue_wait_ms
+        self.last_command_age_ms = command_age_ms
+        self.last_queue_depth = queue_depth
+        self.delivery_confirmed = delivery_confirmed
 
         for listener in list(self._listeners):
             listener()
@@ -73,4 +94,11 @@ class HubStatus:
             "last_error": self.last_error,
             "last_error_message": self.last_error_message,
             "last_updated": self.last_updated,
+            "last_request_id": self.last_request_id,
+            "last_dispatch_status": self.last_dispatch_status,
+            "last_transmitter_id": self.last_transmitter_id,
+            "last_queue_wait_ms": self.last_queue_wait_ms,
+            "last_command_age_ms": self.last_command_age_ms,
+            "last_queue_depth": self.last_queue_depth,
+            "delivery_confirmed": self.delivery_confirmed,
         }

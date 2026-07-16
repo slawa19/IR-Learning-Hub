@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -30,8 +31,11 @@ from .const import (
     HUB_TITLE,
     TRANSMITTER_SUBENTRY_TYPE,
 )
-from .device_profiles import get_profile
+from .errors import IRLearningHubError
 from .storage import normalize_ieee
+from .zha_compat import detect_ir_control_cluster, get_zha_device_proxy
+
+_LOGGER = logging.getLogger(__name__)
 
 MANUAL_DEVICE = "__manual__"
 MANUAL_SETUP_LABELS = {
@@ -46,11 +50,6 @@ class _TransmitterFlowMixin:
 
     async def _async_discover_zha_transmitters(self) -> dict[str, dict[str, Any]]:
         """Find ZHA devices exposing the known IR control cluster."""
-        try:
-            from homeassistant.components.zha.helpers import async_get_zha_device_proxy
-        except ImportError:
-            return {}
-
         devreg = dr.async_get(self.hass)
         discovered: dict[str, dict[str, Any]] = {}
         for device in devreg.devices.values():
@@ -59,11 +58,18 @@ class _TransmitterFlowMixin:
                 continue
 
             try:
-                zha_device_proxy = async_get_zha_device_proxy(self.hass, device.id)
-            except Exception:
+                zha_device_proxy = get_zha_device_proxy(self.hass, device.id)
+                detected = detect_ir_control_cluster(zha_device_proxy, DEFAULT_PROFILE)
+            except IRLearningHubError as err:
+                _LOGGER.debug("Skipping ZHA IR discovery for %s: %s", device.id, err)
                 continue
-
-            detected = _detect_profile_config(zha_device_proxy)
+            except Exception as err:  # pragma: no cover - defensive config-flow boundary.
+                _LOGGER.debug(
+                    "Skipping ZHA IR discovery for %s after unexpected proxy error: %s",
+                    device.id,
+                    err,
+                )
+                continue
             if detected is None:
                 continue
 
@@ -353,34 +359,3 @@ def _manual_setup_label(language: str | None) -> str:
     """Return a localized label for the manual dynamic option."""
     lang = (language or "en").split("-")[0]
     return MANUAL_SETUP_LABELS.get(lang, MANUAL_SETUP_LABELS["en"])
-
-
-def _detect_profile_config(zha_device_proxy: Any) -> tuple[int, int] | None:
-    """Detect endpoint and cluster values for the known transmitter profile."""
-    profile = get_profile(DEFAULT_PROFILE)
-    control_cluster = profile["ir_control_cluster"]
-
-    for device in _iter_nested_devices(zha_device_proxy):
-        endpoints = getattr(device, "endpoints", {}) or {}
-        for endpoint_id, endpoint in endpoints.items():
-            in_clusters = getattr(endpoint, "in_clusters", {}) or {}
-            if control_cluster in in_clusters:
-                return int(endpoint_id), int(control_cluster)
-
-            cluster = getattr(endpoint, "zosung_ircontrol", None)
-            if cluster is not None:
-                cluster_id = getattr(cluster, "cluster_id", control_cluster)
-                return int(endpoint_id), int(cluster_id)
-    return None
-
-
-def _iter_nested_devices(zha_device_proxy: Any) -> list[Any]:
-    """Return ZHA proxy and nested zigpy device objects without duplicates."""
-    devices = []
-    seen_ids = set()
-    device = getattr(zha_device_proxy, "device", None)
-    while device is not None and id(device) not in seen_ids:
-        seen_ids.add(id(device))
-        devices.append(device)
-        device = getattr(device, "device", None)
-    return devices

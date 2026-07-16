@@ -54,21 +54,28 @@ Owns transport-level ZHA behavior:
 
 - resolves the Home Assistant ZHA device registry ID from IEEE;
 - sends learn and transmit commands through `zha.issue_zigbee_cluster_command`;
-- reads the last learned code through `async_get_zha_device_proxy` and the nested zigpy cluster object;
+- reads the last learned code through `zha_compat.py` and the nested zigpy cluster object;
 - maps ZHA failures to integration error codes.
 
-`zha_adapter.py` is transport-only. Consumer entities must not import it.
-Entity sends go through the Home Assistant `infrared` helper and the integration
-emitter entity.
+`zha_adapter.py` is transport-only. Consumer entities and services must not
+call it directly for normal sends. Send requests go through the per-transmitter
+dispatcher.
+
+### `dispatcher.py`
+
+Serializes IR sends per physical transmitter, bounds backlog, expires stale
+commands before dispatch, and records honest dispatch status. The success state
+is `dispatched_unconfirmed`: the command was handed to the ZHA send path, but
+physical IR delivery to the target receiver is not confirmed.
 
 ### `infrared.py`
 
 Exposes one `InfraredEmitterEntity` per `transmitter` subentry (added with that
 subentry's `config_subentry_id`).
 
-The emitter represents the physical transmitter, wraps the existing
-`ZHAAdapter`, and accepts opaque `ZosungCommand` payloads. It is the only entity
-layer object that sends through ZHA.
+The emitter represents the physical transmitter, accepts opaque `ZosungCommand`
+payloads, and forwards them to the dispatcher with safe registry metadata when
+available.
 
 ### `ir_command.py`
 
@@ -131,18 +138,19 @@ as the canonical key.
 
 Pure storage migrations: v1→v2 (entity-projection fields), v2→v3 (seed command
 `feature` from canonical legacy ids), v3→v4 (canonicalize stored
-`transmitter_id`).
+`transmitter_id`), v4→v5 (reclassify generated Sony SIRC mute as
+`mute_toggle`).
 
 ### `storage.py`
 
 Owns persistent registry state using Home Assistant `Store`.
 
-The current store (schema v4) contains transmitter metadata and user command
+The current store (schema v5) contains transmitter metadata and user command
 registry data:
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "transmitters": {},
   "locations": {}
 }
@@ -193,7 +201,9 @@ owner-election/lifecycle machinery was removed by the hub+subentries restructure
 
 ### `sensor.py` and `status.py`
 
-Expose a diagnostic status sensor. The status sensor is not the primary API; services are the primary API.
+Expose a diagnostic status sensor. The status sensor is not the primary API;
+services are the primary API. Dispatch status is global and reflects the last
+dispatch event, while service responses carry the request-specific `request_id`.
 
 ### `www/ir-learning-hub-card.js`
 
@@ -221,7 +231,9 @@ cluster = ... # endpoint 1, in cluster 0xE004
 attrs, failed = await cluster.read_attributes([0])
 ```
 
-The exact wrapper depth can vary across Home Assistant versions, so `zha_adapter.py` walks nested `.device` objects until it finds a matching endpoint and cluster.
+The exact wrapper depth can vary across Home Assistant versions, so
+`zha_compat.py` owns private helper import, proxy traversal, and cluster
+detection in one place.
 
 ## Learning Model
 
@@ -276,8 +288,9 @@ The entity-first path is:
 remote / media_player / switch entity   (resolve feature or command_id -> stored code)
   -> Home Assistant infrared helper
      -> IR Learning Hub emitter entity
-        -> ZHAAdapter
-           -> ZHA / TS1201
+        -> per-transmitter dispatcher
+           -> ZHAAdapter
+              -> ZHA / TS1201
 ```
 
 `media_player`/`switch` resolve commands by their canonical `feature` role;

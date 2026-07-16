@@ -108,6 +108,35 @@ class CapabilityInferenceTests(unittest.TestCase):
         self.assertEqual(capabilities.source_commands, ("cd", "tuner"))
         self.assertEqual(capabilities.source_names, {"cd": "CD", "tuner": "Tuner"})
 
+    def test_mute_capability_requires_discrete_pair_or_toggle(self) -> None:
+        self.assertNotIn(
+            "mute",
+            infer_capabilities(
+                [{"command_id": "mute", "feature": "mute", "name": "Mute"}]
+            ).media_features,
+        )
+        self.assertIn(
+            "mute",
+            infer_capabilities(
+                [
+                    {"command_id": "mute", "feature": "mute", "name": "Mute"},
+                    {"command_id": "unmute", "feature": "unmute", "name": "Unmute"},
+                ]
+            ).media_features,
+        )
+        self.assertIn(
+            "mute",
+            infer_capabilities(
+                [
+                    {
+                        "command_id": "mute_toggle",
+                        "feature": "mute_toggle",
+                        "name": "Mute",
+                    }
+                ]
+            ).media_features,
+        )
+
     def test_pure_switch_detection(self) -> None:
         self.assertTrue(
             infer_capabilities(

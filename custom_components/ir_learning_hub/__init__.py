@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import uuid
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable
@@ -71,6 +72,8 @@ from .const import (
     PREFERRED_DOMAINS,
     TRANSMITTER_SUBENTRY_TYPE,
 )
+from .consumer import transmitter_id_for_store_item
+from .dispatcher import CommandContext, IRCommandDispatcher
 from .errors import IRLearningHubError
 from .ir_formats import (
     IRFormatError,
@@ -240,6 +243,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data["status"] = HubStatus()
         domain_data["adapter"] = ZHAAdapter(hass)
         domain_data["learn_tasks"] = {}
+        domain_data["dispatcher"] = IRCommandDispatcher(
+            domain_data["adapter"],
+            domain_data["status"],
+        )
 
     if not domain_data.get("frontend_registered"):
         await _async_register_frontend(hass)
@@ -284,6 +291,10 @@ def _teardown_domain(hass: HomeAssistant, domain_data: dict[str, Any]) -> None:
     """Remove global resources after the last config entry is deleted."""
     for task in domain_data.get("learn_tasks", {}).values():
         task.cancel()
+
+    dispatcher = domain_data.get("dispatcher")
+    if dispatcher is not None:
+        dispatcher.shutdown()
 
     for service in REGISTERED_SERVICES:
         hass.services.async_remove(DOMAIN, service)
@@ -606,6 +617,7 @@ def _register_services(hass: HomeAssistant) -> None:
     """Register integration services."""
     store: IRRegistryStore = hass.data[DOMAIN]["store"]
     adapter: ZHAAdapter = hass.data[DOMAIN]["adapter"]
+    dispatcher: IRCommandDispatcher = hass.data[DOMAIN]["dispatcher"]
     status: HubStatus = hass.data[DOMAIN]["status"]
     learn_tasks: dict[str, asyncio.Task] = hass.data[DOMAIN]["learn_tasks"]
 
@@ -615,6 +627,55 @@ def _register_services(hass: HomeAssistant) -> None:
             canonical = resolve_transmitter_ref(hass, store, transmitter_ref)
             return store.resolve_transmitter(canonical)
         return store.resolve_transmitter(None)
+
+    def transmitter_with_id(data: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        transmitter_ref = data.get(FIELD_TRANSMITTER_ID)
+        if transmitter_ref:
+            canonical = resolve_transmitter_ref(hass, store, transmitter_ref)
+            return canonical, store.resolve_transmitter(canonical)
+        tx = store.resolve_transmitter(None)
+        return transmitter_id_for_store_item(store, tx), tx
+
+    def set_service_error_status(
+        action: str,
+        data: dict[str, Any],
+        err: IRLearningHubError,
+    ) -> None:
+        status.async_set(
+            STATUS_ERROR,
+            action=action,
+            location_id=data.get(FIELD_LOCATION_ID),
+            ir_device_id=data.get(FIELD_IR_DEVICE_ID),
+            command_id=data.get(FIELD_COMMAND_ID),
+            error=err.code,
+            error_message=err.message,
+        )
+
+    async def dispatch_service_code(
+        action: str,
+        data: dict[str, Any],
+        code: str,
+    ) -> dict[str, Any]:
+        try:
+            transmitter_id, tx = transmitter_with_id(data)
+        except IRLearningHubError as err:
+            set_service_error_status(action, data, err)
+            raise
+
+        result = await dispatcher.async_send(
+            transmitter_id,
+            tx,
+            code,
+            context=CommandContext(
+                request_id=uuid.uuid4().hex,
+                transmitter_id=transmitter_id,
+                location_id=data.get(FIELD_LOCATION_ID),
+                ir_device_id=data.get(FIELD_IR_DEVICE_ID),
+                command_id=data.get(FIELD_COMMAND_ID),
+                source="service",
+            ),
+        )
+        return result.as_response()
 
     async def run_service(
         action: str,
@@ -792,16 +853,10 @@ def _register_services(hass: HomeAssistant) -> None:
         )
 
     async def test_code(call: ServiceCall) -> dict[str, str]:
-        async def action() -> dict[str, str]:
-            await adapter.async_send(transmitter(call.data), call.data[FIELD_CODE])
-            return {"status": "sent"}
-
-        return await run_service(
+        return await dispatch_service_code(
             SERVICE_TEST_CODE,
-            action,
-            status_state=STATUS_IDLE,
-            start_status_state=STATUS_SENDING,
-            data=call.data,
+            call.data,
+            call.data[FIELD_CODE],
         )
 
     async def generate_code(call: ServiceCall) -> dict[str, Any]:
@@ -864,22 +919,20 @@ def _register_services(hass: HomeAssistant) -> None:
 
         return await run_service(SERVICE_SAVE_COMMAND, action, data=call.data)
 
-    async def send_command(call: ServiceCall) -> dict[str, str]:
-        async def action() -> dict[str, str]:
+    async def send_command(call: ServiceCall) -> dict[str, Any]:
+        try:
             command = store.get_command(
                 call.data[FIELD_LOCATION_ID],
                 call.data[FIELD_IR_DEVICE_ID],
                 call.data[FIELD_COMMAND_ID],
             )
-            await adapter.async_send(transmitter(call.data), command["code"])
-            return {"status": "sent"}
-
-        return await run_service(
+        except IRLearningHubError as err:
+            set_service_error_status(SERVICE_SEND_COMMAND, call.data, err)
+            raise
+        return await dispatch_service_code(
             SERVICE_SEND_COMMAND,
-            action,
-            status_state=STATUS_IDLE,
-            start_status_state=STATUS_SENDING,
-            data=call.data,
+            call.data,
+            command["code"],
         )
 
     async def list_commands(call: ServiceCall) -> dict[str, Any]:

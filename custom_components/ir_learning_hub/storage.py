@@ -24,11 +24,11 @@ from .const import (
 )
 from .device_profiles import get_profile
 from .errors import IRLearningHubError
-from .storage_migration import migrate_to_v4
+from .storage_migration import migrate_to_v5
 from .transmitter_identity import normalize_transmitter_ref
 
 STORAGE_KEY = "ir_learning_hub"
-STORAGE_VERSION = 4
+STORAGE_VERSION = 5
 ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
@@ -75,7 +75,7 @@ class IRRegistryDataStore(Store):
         old_data: dict[str, Any],
     ) -> dict[str, Any]:
         """Migrate old registry data to the current schema."""
-        return migrate_to_v4(old_data)
+        return migrate_to_v5(old_data)
 
 
 class IRRegistryStore:
@@ -95,7 +95,7 @@ class IRRegistryStore:
             return
 
         if stored.get("version", 1) < STORAGE_VERSION:
-            stored = migrate_to_v4(stored)
+            stored = migrate_to_v5(stored)
 
         self.data = _default_data() | stored
         self.data.setdefault("transmitters", {})

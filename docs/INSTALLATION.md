@@ -61,10 +61,10 @@ Use category `Integration`.
 
 Install the latest available release, restart Home Assistant, then add the integration from `Settings -> Devices & services`.
 
-Install `v0.3.3` or newer. The integration manifest should contain:
+Install the latest available release. Dispatcher builds require `v0.4.0` or newer once that GitHub Release exists. The dispatcher release manifest should contain:
 
 ```json
-{ "version": "0.3.3" }
+{ "version": "0.4.0" }
 ```
 
 ## Add the Integration
@@ -140,19 +140,19 @@ You can also validate through the Lovelace card:
 
 ## Updating
 
-### HACS update to `v0.3.3`
+### HACS update for the dispatcher release
 
 1. In HACS, open `IR Learning Hub`.
-2. Install release `v0.3.3` or newer.
+2. Install release `v0.4.0` or newer once it is available as a GitHub Release.
 3. Restart Home Assistant.
 4. Reload the dashboard in the browser.
 5. Open `Settings -> Devices & services -> Entities` and verify the new entities.
 
 If HACS still shows an older version, reload HACS data and check for the latest release again.
 
-### Manual update to `v0.3.3`
+### Manual update for the dispatcher release
 
-1. Download or checkout tag `v0.3.3`.
+1. Download or checkout tag `v0.4.0` after it has been published.
 2. Replace the files under:
 
    ```text
@@ -162,7 +162,7 @@ If HACS still shows an older version, reload HACS data and check for the latest 
 3. Confirm the installed manifest says:
 
    ```json
-   { "version": "0.3.3" }
+   { "version": "0.4.0" }
    ```
 
 4. Restart Home Assistant.

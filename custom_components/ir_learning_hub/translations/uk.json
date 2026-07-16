@@ -54,6 +54,13 @@
           "learning": "Навчання",
           "sending": "Надсилання",
           "code_received": "Код отримано",
+          "queued": "У черзі",
+          "dispatching": "Передача в Zigbee",
+          "dispatched_unconfirmed": "Передано без підтвердження",
+          "delivery_failed": "Помилка передачі",
+          "expired": "Прострочено",
+          "queue_full": "Чергу заповнено",
+          "dispatcher_stopped": "Dispatcher зупинено",
           "error": "Помилка"
         },
         "state_attributes": {
@@ -63,7 +70,14 @@
           "last_command_id": { "name": "Остання команда" },
           "last_error": { "name": "Остання помилка" },
           "last_error_message": { "name": "Текст останньої помилки" },
-          "last_updated": { "name": "Останнє оновлення" }
+          "last_updated": { "name": "Останнє оновлення" },
+          "last_request_id": { "name": "ID останнього запиту" },
+          "last_dispatch_status": { "name": "Останній статус передачі" },
+          "last_transmitter_id": { "name": "ID останнього передавача" },
+          "last_queue_wait_ms": { "name": "Очікування в черзі, мс" },
+          "last_command_age_ms": { "name": "Вік команди, мс" },
+          "last_queue_depth": { "name": "Глибина черги" },
+          "delivery_confirmed": { "name": "Доставку підтверджено" }
         }
       }
     }
@@ -411,10 +425,13 @@
   "exceptions": {
     "code_empty": { "message": "ІЧ-код порожній." },
     "code_generation_failed": { "message": "Не вдалося згенерувати ІЧ-код із заданих параметрів протоколу." },
+    "command_expired": { "message": "ІЧ-команда застаріла до передачі." },
     "cluster_not_found": { "message": "Кластер керування ІЧ не знайдено на пристрої." },
     "command_not_found": { "message": "Запитану команду не знайдено." },
+    "dispatcher_stopped": { "message": "Dispatcher ІЧ-команд було зупинено." },
     "learn_failed": { "message": "Не вдалося запустити або завершити навчання ІЧ." },
     "learn_timeout": { "message": "Час очікування ІЧ-коду вичерпано." },
+    "queue_full": { "message": "Чергу ІЧ-команд заповнено." },
     "send_failed": { "message": "Не вдалося надіслати ІЧ-код." },
     "storage_error": { "message": "Не вдалося прочитати або записати реєстр команд." },
     "transmitter_not_configured": { "message": "Жодного ІЧ-передавача не налаштовано." },

@@ -25,12 +25,21 @@ from ir_command import (  # noqa: E402
 
 class ZosungCommandTests(unittest.TestCase):
     def test_stores_opaque_payload_and_command_metadata(self) -> None:
-        command = ZosungCommand("encoded-code", repeat_count=2)
+        command = ZosungCommand(
+            "encoded-code",
+            repeat_count=2,
+            location_id="living",
+            ir_device_id="amp",
+            command_id="power",
+        )
 
         self.assertEqual(command.code, "encoded-code")
         self.assertEqual(command.format, ZOSUNG_FORMAT)
         self.assertEqual(command.modulation, DEFAULT_MODULATION)
         self.assertEqual(command.repeat_count, 2)
+        self.assertEqual(command.location_id, "living")
+        self.assertEqual(command.ir_device_id, "amp")
+        self.assertEqual(command.command_id, "power")
         self.assertEqual(command_code(command), "encoded-code")
 
     def test_allows_explicit_format_and_modulation(self) -> None:

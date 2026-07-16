@@ -78,8 +78,17 @@ code: "<base64-code>"
 Returns:
 
 ```yaml
-status: sent
+status: dispatched_unconfirmed
+delivery_confirmed: false
+request_id: "<request-id>"
+transmitter_id: "<transmitter-id>"
+queue_wait_ms: 0
+command_age_ms: 0
+queue_depth: 1
 ```
+
+This means the command was handed to the ZHA send path. Physical IR delivery to
+the target receiver is not confirmed.
 
 ### `ir_learning_hub.generate_code`
 
@@ -189,6 +198,13 @@ volume_up  volume_down  mute  unmute  mute_toggle
 source
 ```
 
+Mute roles are intentionally distinct:
+
+- `mute` is a discrete mute-on command.
+- `unmute` is a discrete mute-off command.
+- `mute_toggle` is a toggle; Home Assistant state is assumed because the receiver
+  does not report feedback.
+
 Every command with `feature: source` becomes a selectable input; its display
 `name` is the label shown in the media player's `source_list`.
 
@@ -222,8 +238,17 @@ command_id: open_close
 Returns:
 
 ```yaml
-status: sent
+status: dispatched_unconfirmed
+delivery_confirmed: false
+request_id: "<request-id>"
+transmitter_id: "<transmitter-id>"
+queue_wait_ms: 0
+command_age_ms: 0
+queue_depth: 1
 ```
+
+This means the command was handed to the ZHA send path. Physical IR delivery to
+the target receiver is not confirmed.
 
 ## Native Entities
 
@@ -464,6 +489,9 @@ learn_timeout
 code_empty
 code_generation_failed
 send_failed
+command_expired
+queue_full
+dispatcher_stopped
 command_not_found
 storage_error
 unknown_profile

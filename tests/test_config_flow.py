@@ -32,7 +32,9 @@ from custom_components.ir_learning_hub.const import (
     DEFAULT_PROFILE,
     HUB_ENTRY_DATA,
     TRANSMITTER_SUBENTRY_TYPE,
+    ERROR_ZHA_UNAVAILABLE,
 )
+from custom_components.ir_learning_hub.errors import IRLearningHubError
 
 
 class FakeEntry:
@@ -63,6 +65,21 @@ class FakeHass:
     def __init__(self, entry=None) -> None:
         self.config = type("Config", (), {"language": "en"})()
         self.config_entries = FakeConfigEntries(entry) if entry else None
+
+
+class FakeDevice:
+    def __init__(self, device_id: str, ieee: str) -> None:
+        self.id = device_id
+        self.identifiers = {("zha", ieee)}
+        self.name_by_user = None
+        self.name = "ZHA IR"
+        self.manufacturer = "Tuya"
+        self.model = "TS1201"
+
+
+class FakeDeviceRegistry:
+    def __init__(self, devices) -> None:
+        self.devices = {device.id: device for device in devices}
 
 
 def make_subentry(ieee: str, subentry_id: str = "sub-1") -> ConfigSubentry:
@@ -142,6 +159,46 @@ def test_main_config_flow_aborts_when_hub_already_exists(monkeypatch) -> None:
 
     assert result["type"] == "abort"
     assert result["reason"] == "single_instance_allowed"
+
+
+def test_config_flow_discovery_fail_soft_when_zha_proxy_unavailable(monkeypatch) -> None:
+    flow = IRLearningHubConfigFlow()
+    flow.hass = FakeHass()
+
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.config_flow.dr.async_get",
+        lambda hass: FakeDeviceRegistry([FakeDevice("dev-1", "00:11")]),
+    )
+
+    def raise_unavailable(hass, device_id):
+        raise IRLearningHubError(ERROR_ZHA_UNAVAILABLE, "helper unavailable")
+
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.config_flow.get_zha_device_proxy",
+        raise_unavailable,
+    )
+
+    assert asyncio.run(flow._async_discover_zha_transmitters()) == {}
+
+
+def test_config_flow_discovery_fail_soft_when_cluster_detection_fails(monkeypatch) -> None:
+    flow = IRLearningHubConfigFlow()
+    flow.hass = FakeHass()
+
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.config_flow.dr.async_get",
+        lambda hass: FakeDeviceRegistry([FakeDevice("dev-1", "00:11")]),
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.config_flow.get_zha_device_proxy",
+        lambda hass, device_id: object(),
+    )
+    monkeypatch.setattr(
+        "custom_components.ir_learning_hub.config_flow.detect_ir_control_cluster",
+        lambda proxy, profile_id: (_ for _ in ()).throw(RuntimeError("bad proxy")),
+    )
+
+    assert asyncio.run(flow._async_discover_zha_transmitters()) == {}
 
 
 def test_transmitter_subentry_flow_creates_second_transmitter(monkeypatch) -> None:

@@ -26,15 +26,15 @@ The integration is intentionally local-first. It uses Home Assistant's native ZH
 
 ## Current State
 
-IR Learning Hub `v0.3.3` is a functional Home Assistant custom integration for the confirmed TS1201 / MOES UFO-R11 ZHA path.
+IR Learning Hub `v0.3.4` is the latest published Home Assistant custom integration release for the confirmed TS1201 / MOES UFO-R11 ZHA path. The current working tree prepares the next dispatcher release, `v0.4.0`.
 
-Release metadata:
+Prepared next-release metadata:
 
 ```json
-{ "version": "0.3.3" }
+{ "version": "0.4.0" }
 ```
 
-Current release tag: `v0.3.3`.
+Latest published release tag: `v0.3.4`. Publish `v0.4.0` only after the release metadata commit is tagged and a non-draft GitHub Release exists.
 
 The implemented flow covers the full command lifecycle:
 
@@ -186,7 +186,7 @@ Add this repository as a HACS custom repository with category `Integration`:
 https://github.com/slawa19/IR-Learning-Hub
 ```
 
-Install release `v0.3.3` or newer, then restart Home Assistant.
+Install the latest available release, then restart Home Assistant. Dispatcher builds require `v0.4.0` or newer once that GitHub Release exists.
 
 ### Lovelace Resource
 
@@ -334,6 +334,7 @@ SmartIR-compatible export and additional transmitter transports may be considere
 	const.py                 # constants and service names
 	consumer.py              # shared consumer-entity base, manager, send helpers
 	device_profiles.py       # supported transmitter profile definitions
+	dispatcher.py            # per-transmitter IR send queue, TTL, status
 	errors.py                # localized integration error type
 	icon.png                 # local Home Assistant integration icon
 	infrared.py              # infrared emitter entity platform (per subentry)
@@ -352,6 +353,7 @@ SmartIR-compatible export and additional transmitter transports may be considere
 	translations/            # backend translations
 	ir_formats/              # pure IR format/protocol conversion helpers
 	zha_adapter.py           # ZHA learn/read/send adapter
+	zha_compat.py            # private ZHA proxy/cluster compatibility layer
 	www/ir-learning-hub-card.js
 
 brand/                      # HACS repository icon assets
@@ -382,7 +384,7 @@ docs/
 
 ## Development Notes
 
-The integration keeps ZHA transport logic in `zha_adapter.py`, registry logic in `storage.py`, setup logic in `config_flow.py`, and user workflow logic in the Lovelace card. The UI should call integration services and should not reimplement ZHA reads or Zigbee cluster traversal.
+The integration keeps normal IR sends behind `dispatcher.py`, ZHA transport logic in `zha_adapter.py`, private ZHA proxy traversal in `zha_compat.py`, registry logic in `storage.py`, setup logic in `config_flow.py`, and user workflow logic in the Lovelace card. The UI should call integration services and should not reimplement ZHA reads or Zigbee cluster traversal.
 
 When publishing a release, keep `manifest.json`, the Lovelace card version, README examples, installation docs, changelog, the git tag, and the GitHub Release in sync.
 

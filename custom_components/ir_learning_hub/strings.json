@@ -54,6 +54,13 @@
           "learning": "Learning",
           "sending": "Sending",
           "code_received": "Code received",
+          "queued": "Queued",
+          "dispatching": "Dispatching",
+          "dispatched_unconfirmed": "Dispatched, unconfirmed",
+          "delivery_failed": "Delivery failed",
+          "expired": "Expired",
+          "queue_full": "Queue full",
+          "dispatcher_stopped": "Dispatcher stopped",
           "error": "Error"
         },
         "state_attributes": {
@@ -63,7 +70,14 @@
           "last_command_id": { "name": "Last command" },
           "last_error": { "name": "Last error" },
           "last_error_message": { "name": "Last error message" },
-          "last_updated": { "name": "Last updated" }
+          "last_updated": { "name": "Last updated" },
+          "last_request_id": { "name": "Last request ID" },
+          "last_dispatch_status": { "name": "Last dispatch status" },
+          "last_transmitter_id": { "name": "Last transmitter ID" },
+          "last_queue_wait_ms": { "name": "Last queue wait ms" },
+          "last_command_age_ms": { "name": "Last command age ms" },
+          "last_queue_depth": { "name": "Last queue depth" },
+          "delivery_confirmed": { "name": "Delivery confirmed" }
         }
       }
     }
@@ -431,10 +445,13 @@
   "exceptions": {
     "code_empty": { "message": "The IR code is empty." },
     "code_generation_failed": { "message": "Could not generate the IR code from the given protocol parameters." },
+    "command_expired": { "message": "The IR command expired before it could be dispatched." },
     "cluster_not_found": { "message": "The IR control cluster was not found on the device." },
     "command_not_found": { "message": "The requested command was not found." },
+    "dispatcher_stopped": { "message": "The IR command dispatcher was stopped." },
     "learn_failed": { "message": "Failed to start or complete IR learning." },
     "learn_timeout": { "message": "Timed out while waiting for an IR code." },
+    "queue_full": { "message": "The IR command queue is full." },
     "send_failed": { "message": "Failed to send the IR code." },
     "storage_error": { "message": "Failed to read or write the command registry." },
     "transmitter_not_configured": { "message": "No IR transmitter is configured." },

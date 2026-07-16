@@ -54,9 +54,51 @@ Check:
 - the target IR device is in range;
 - the ZHA network is healthy.
 
+## `command_expired` / `expired`
+
+The command waited too long in the per-transmitter queue and was not sent. This
+protects against stale clicks being replayed after a delayed Zigbee send path
+recovers.
+
+Check:
+
+- whether the same transmitter is receiving many commands at once;
+- whether ZHA sends are slow or timing out;
+- automations that may be repeating a service call too aggressively.
+
+## `queue_full`
+
+The transmitter already has the maximum number of active plus queued commands.
+The newest command was rejected instead of growing an unbounded backlog.
+
+Check:
+
+- dashboards or automations that can fire repeated sends rapidly;
+- stuck ZHA sends for the same transmitter;
+- whether separate rooms/devices should use separate physical transmitters.
+
+## `dispatcher_stopped`
+
+The integration was unloaded or restarted while a command was still pending in
+the dispatcher queue. Pending commands are failed during teardown; commands
+already handed to ZHA are allowed to finish.
+
+Check:
+
+- whether Home Assistant or the integration was restarted during the service call;
+- whether the error appeared during reload/update rather than normal use.
+
+## `delivery_failed`
+
+The dispatcher tried to hand the command to ZHA, but the transport returned an
+error. The physical IR delivery is not confirmed.
+
+Check the same items as for `send_failed`, then review Home Assistant logs for
+the wrapped ZHA error message.
+
 ## Command does not control the target device
 
-A service call can succeed even if the target IR device does not react. ZHA can confirm that the command was sent to the IR blaster, but it cannot confirm that the IR receiver accepted it.
+A service call can succeed even if the target IR device does not react. IR Learning Hub can report that the command was dispatched to the ZHA send path, but it cannot confirm that the IR receiver accepted it.
 
 Try:
 
@@ -102,7 +144,7 @@ Check:
 The card logs its loaded version in the browser console:
 
 ```text
-IR-LEARNING-HUB-CARD 0.3.3
+IR-LEARNING-HUB-CARD 0.4.0
 ```
 
 If the console shows an older version after updating, restart Home Assistant and reload the dashboard. The integration auto-syncs the Lovelace resource URL with a version query string after startup, so the resource should move forward without manual `?v=` edits.

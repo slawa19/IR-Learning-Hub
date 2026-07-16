@@ -225,6 +225,9 @@ async def async_send_registry_command(
         ZosungCommand(
             command["code"],
             command_format=command.get("format", "zosung_base64"),
+            location_id=spec.location_id,
+            ir_device_id=spec.ir_device_id,
+            command_id=command_id,
         ),
         context=context,
     )
